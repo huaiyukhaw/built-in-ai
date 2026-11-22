@@ -21,13 +21,17 @@ Not yet verified by a human: the floating caption window, and real speech in a r
 
 ## Round 1: fix what testing showed (build next)
 
-### 1. Drop duplicate lines (mic hears the meeting through the speakers) · size S
+### 1. Drop duplicate lines (mic hears the meeting through the speakers) · ✅ done 2026-11-23
 **Evidence:** with the room mic on, Web Speech used the real laptop mic, which picked up the meeting audio from the speakers and transcribed the remote speaker's lines as "Room".
-**Plan:**
-- When a mic segment closely matches a tab segment from the last ~10 s (normalised text, token overlap ≥ 0.6), drop it or merge it into the tab line.
-- Handle both arrival orders: the mic line can arrive *before* the tab line, because tab transcription lags ~5 s. Keep mic lines "provisional" for a few seconds while tab audio is active.
-- Add an onboarding hint and a settings toggle: "Using speakers? Turn on echo filtering."
-- Unit-test the matcher with paraphrased and partial transcripts.
+**What was built:**
+- **Echo-cancelled mic:** the mic is opened with `getUserMedia({ echoCancellation: true })` and passed to `SpeechRecognition.start(track)`. Spike in Chrome 157: a silent track gives no text and the mic track gives text, so recognition really uses the track. Chrome's echo cancellation only removes sound Chrome itself plays, so this helps for a meeting in a Chrome tab, not for the Teams/Zoom app.
+- **Text matching (`src/lib/echo.ts`):** while remote audio is on, mic lines are shown dimmed and held for up to 20 s (a 12 s clip plus transcription). A remote line drops held mic lines that share at least half of the shorter line's content words (at least two; a one-word fragment like "Friday" must appear in the remote line). Mic lines from before the remote clip ended are committed then, so the transcript stays in time order. A mic line arriving after its remote line is dropped at once.
+- A one-time message says the mic is hearing the speakers and suggests headphones. No settings toggle: it only acts when both sources are on.
+
+**Results** (Chrome 157, fake mic and fake screen share playing the same recording):
+- First run: 4 echoed mic lines removed, including misrecognised ones ("Disability audit…" for "The accessibility audit…", "Priy adjoining"). One one-word fragment ("Friday") stayed held, which led to the one-word rule.
+- Second run: all 9 echoed mic lines removed, including fragments ("On the claims form", "Next Friday"). No duplicates and nothing left held.
+- **Not verified:** a real room with real speakers and real room speech. The risk is a room comment that repeats a remote line closely being removed.
 
 ### 2. Build the minutes during the meeting · ✅ done 2026-11-23
 **What was built:**
@@ -82,7 +86,7 @@ Six samples in `test/evals/samples/`, scorer in `src/eval/score.ts`, runner at `
 
 ## Round 2: make it stand out
 
-**Build order (agreed 2026-11-22):** #2 → #4 Speaker names → #1 Duplicate lines → #5 Agenda tracker → #11 Glossary → #12 Slide-aware notes. Each feature gets its own commit.
+**Build order (agreed 2026-11-22):** #2 ✅ → #4 Speaker names ✅ → #1 Duplicate lines ✅ → #5 Agenda tracker → #11 Glossary → #12 Slide-aware notes. Each feature gets its own commit.
 
 Other ideas from the same brainstorm, not yet scheduled: open existing recordings or transcripts (File Handling / Share Target), "someone said your name" alerts (Notifications + Badging), action items across meetings, ask by voice with a spoken answer, live interpreting into earphones, chapters with an optional local recording, whiteboard photo into the minutes, Writer/Rewriter follow-up email, slowing background work when the CPU is under pressure.
 

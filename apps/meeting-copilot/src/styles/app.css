@@ -287,6 +287,8 @@ button.speaker:focus-visible { outline: 2px solid var(--primary); outline-offset
 .speaker .src { font-weight: 400; opacity: 0.8; }
 .line .main { font: var(--caption); color: var(--on-surface); }
 .line .main.pending { color: var(--on-surface-variant); }
+/* A mic line waiting to be checked against remote speech (it may be the meeting heard through the speakers). */
+.line.held { opacity: 0.7; }
 .line .orig { font: var(--body-m); color: var(--on-surface-variant); }
 .line .orig .tag { margin-inline-start: 0.375rem; }
 @media (prefers-reduced-motion: no-preference) {

@@ -86,7 +86,8 @@ interface SpeechRecognition extends EventTarget {
   onresult: ((e: SpeechRecognitionEvent) => void) | null;
   onerror: ((e: SpeechRecognitionErrorEvent) => void) | null;
   onend: (() => void) | null;
-  start(): void;
+  /** Newer Chrome (checked in 157): recognise this audio track instead of the default mic. */
+  start(audioTrack?: MediaStreamTrack): void;
   stop(): void;
   abort(): void;
 }

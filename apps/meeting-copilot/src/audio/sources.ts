@@ -4,7 +4,8 @@ import { langOf, PROMPT_LANGS } from '../lib/model';
 import { VoiceChunker } from './chunker';
 
 export interface SourceEvents {
-  onFinal(text: string): void;
+  /** A finished line. Remote audio also says when its clip ended (ms since epoch), for echo matching. */
+  onFinal(text: string, clipEnd?: number): void;
   onInterim?(text: string): void;
   onError(err: Error): void;
   /** Capture ended on its own (e.g. user clicked Chrome's "Stop sharing") */
@@ -27,6 +28,8 @@ export const hasMic = () => Boolean(SR());
 /**
  * Microphone via Web Speech. Prefers on-device recognition (Chrome 139+);
  * otherwise Chrome streams audio to Google's speech service, which the UI discloses.
+ * The mic is opened with echo cancellation and handed to recognition as a track where Chrome
+ * supports that, so a meeting playing in a Chrome tab is mostly not heard twice.
  */
 export async function startMic(locale: string, ev: SourceEvents): Promise<AudioSource> {
   const Ctor = SR();
@@ -45,6 +48,14 @@ export async function startMic(locale: string, ev: SourceEvents): Promise<AudioS
       if (a === 'available') { rec.processLocally = true; local = true; }
     } catch { /* fall back to the server-based recognizer */ }
   }
+
+  const track = await echoCancelledMic();
+  const begin = () => {
+    if (track) {
+      try { rec.start(track); return; } catch { /* this Chrome doesn't take a track: use the default mic */ }
+    }
+    rec.start();
+  };
 
   let active = true;
   let restarts = 0;
@@ -66,11 +77,21 @@ export async function startMic(locale: string, ev: SourceEvents): Promise<AudioS
   rec.onend = () => {
     if (!active) return;
     if (++restarts > 20) { active = false; ev.onError(new Error('Speech recognition keeps stopping.')); return; }
-    setTimeout(() => active && rec.start(), restarts > 3 ? 1000 : 0);
+    setTimeout(() => active && begin(), restarts > 3 ? 1000 : 0);
   };
-  rec.start();
+  begin();
 
-  return { local, stop() { active = false; rec.stop(); } };
+  return { local, stop() { active = false; rec.stop(); track?.stop(); } };
+}
+
+/** The mic with Chrome's echo cancellation on, or null if it can't be opened this way. */
+async function echoCancelledMic(): Promise<MediaStreamTrack | null> {
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: { echoCancellation: true, noiseSuppression: true, autoGainControl: true } });
+    return stream.getAudioTracks()[0] ?? null;
+  } catch {
+    return null;
+  }
 }
 
 // ---------------------------------------------------------------- tab audio
@@ -147,6 +168,7 @@ export async function startTabAudio(transcriber: Promise<LanguageModelSession>, 
   let stopped = false;
 
   const transcribe = (samples: Float32Array) => {
+    const clipEnd = Date.now();
     backlog++;
     if (backlog > 3) ev.onStatus?.(`Transcription is ${backlog} clips behind…`);
     // Clips already queued (including the final flush on stop) still get transcribed.
@@ -161,7 +183,7 @@ export async function startTabAudio(transcriber: Promise<LanguageModelSession>, 
           { type: 'text', value: 'Transcribe this audio.' },
           { type: 'audio', value: buffer },
         ] }])).trim();
-        if (text && !/^\[?no speech\]?\.?$/i.test(text)) ev.onFinal(text);
+        if (text && !/^\[?no speech\]?\.?$/i.test(text)) ev.onFinal(text, clipEnd);
       } finally {
         s.destroy();
         ev.onInterim?.('');

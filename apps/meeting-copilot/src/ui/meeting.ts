@@ -5,6 +5,7 @@ import { fileName, mailtoUrl, toHtml, toMarkdown } from '../lib/export';
 import { modelGate } from '../lib/gate';
 import { renderMarkdown } from '../lib/markdown';
 import { mergeExtractions } from '../lib/merge';
+import { EchoFilter } from '../lib/echo';
 import { LIVE_WINDOW, RollingMinutes } from '../lib/rolling';
 import { CAPTION_LANGS, langOf, SPOKEN_LOCALES, type Meeting, type Minutes, type Segment, type SegmentSource } from '../lib/model';
 import { nextSpeaker, renameSpeaker, sourceLabel } from '../lib/speakers';
@@ -177,21 +178,49 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     requestAnimationFrame(() => { lines.scrollTop = lines.scrollHeight; });
   }
 
-  async function addSegment(source: SegmentSource, text: string) {
+  // While remote audio is on, mic lines are shown at once but only join the transcript once they
+  // are known not to be the meeting heard through the speakers (see EchoFilter).
+  let echoes = 0;
+  const echo = new EchoFilter<Segment>(commitSegment, (seg) => {
+    document.getElementById(`seg-${seg.id}`)?.remove();
+    if (++echoes === 1) snackbar('The room mic is hearing the meeting through your speakers. Those repeated lines are removed; headphones avoid them.');
+  });
+
+  function addSegment(source: SegmentSource, text: string, clipEnd?: number) {
     const speaker = nextSpeaker(meeting.segments, source, text);
     const seg: Segment = { id: crypto.randomUUID(), at: Date.now(), source, text, ...(speaker ? { speaker } : {}) };
-    meeting.segments.push(seg);
+    const remoteOn = sources.has('tab');
+    if (source === 'tab') echo.remote(seg, clipEnd);
+    showLine(seg, source === 'mic' && remoteOn);
+    if (source === 'mic') echo.mic(seg, remoteOn);
+    else commitSegment(seg);
+  }
+
+  function showLine(seg: Segment, held: boolean) {
     stageEmpty.hidden = true;
     lines.hidden = false;
     const stick = nearBottom();
-    lines.append(lineEl(seg));
+    const el = lineEl(seg);
+    el.classList.toggle('held', held);
+    lines.append(el);
     if (stick) lines.scrollTop = lines.scrollHeight;
+    void translator.translate(seg.text, langOf(meeting.spokenLocale), meeting.captionLang).then((t) => {
+      seg.translation = t;
+      const old = document.getElementById(`seg-${seg.id}`);
+      if (!old) return; // dropped as an echo
+      const fresh = lineEl(seg);
+      fresh.className = old.className;
+      old.replaceWith(fresh);
+      if (stick) lines.scrollTop = lines.scrollHeight;
+      saver.schedule(meeting);
+    });
+  }
+
+  function commitSegment(seg: Segment) {
+    meeting.segments.push(seg);
+    document.getElementById(`seg-${seg.id}`)?.classList.remove('held');
     saver.schedule(meeting);
     rolling.poke();
-    seg.translation = await translator.translate(text, langOf(meeting.spokenLocale), meeting.captionLang);
-    document.getElementById(`seg-${seg.id}`)?.replaceWith(lineEl(seg));
-    if (stick) lines.scrollTop = lines.scrollHeight;
-    saver.schedule(meeting);
   }
 
   /** Rename a speaker from their caption label; redraws the changed lines and redoes minutes work that used the old name. */
@@ -243,6 +272,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     if (!sources.has(kind)) return;
     sources.get(kind)?.stop();
     sources.delete(kind);
+    if (kind === 'tab') echo.flush();
     (kind === 'mic' ? micBtn : tabBtn).setAttribute('aria-pressed', 'false');
     interim.textContent = '';
     meeting.endedAt = Date.now();
@@ -251,7 +281,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   }
 
   const sourceEvents = (kind: SegmentSource) => ({
-    onFinal: (t: string) => { interim.textContent = ''; void addSegment(kind, t); },
+    onFinal: (t: string, clipEnd?: number) => { interim.textContent = ''; addSegment(kind, t, clipEnd); },
     onInterim: (t: string) => { interim.textContent = t; },
     onError: (err: Error) => { fail(err); stopSource(kind); },
     onEnded: () => stopSource(kind),
@@ -289,8 +319,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
       tabBtn.setAttribute('aria-pressed', 'true');
       refreshLive();
       snackbar(src.surface === 'monitor'
-        ? 'Captioning system audio. Remote speakers appear as “Remote”'
-        : 'Captioning the shared tab. Remote speakers appear as “Remote”');
+        ? 'Captioning system audio. Remote speakers appear as “Remote” until they say their name'
+        : 'Captioning the shared tab. Remote speakers appear as “Remote” until they say their name');
     } catch (err) {
       if (err instanceof DOMException && err.name === 'NotAllowedError') snackbar('Sharing was cancelled');
       else fail(err);
@@ -299,7 +329,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
 
   function refreshTabHint() {
     tabHint.textContent = tabLangSupported(meeting.spokenLocale)
-      ? 'Remote speakers: share the meeting tab with its audio, or for the Teams or Zoom app, your entire screen with system audio. Use headphones if the room mic is on too, to avoid duplicate lines.'
+      ? 'Remote speakers: share the meeting tab with its audio, or for the Teams or Zoom app, your entire screen with system audio. If the room mic hears your speakers, repeated lines are removed after a few seconds; headphones avoid them.'
       : 'Remote captions are available for English, Spanish and Japanese meetings; use the room mic for other languages.';
     tabBtn.title = tabLangSupported(meeting.spokenLocale) ? 'Caption remote speakers (meeting tab or desktop app)' : 'Remote captions: English, Spanish or Japanese meetings only';
   }
@@ -508,7 +538,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
       void translator.prepare(langOf(meeting.spokenLocale), meeting.captionLang);
       void assistant.warmUp();
       rolling.start(); // the demo has no live source, so draft minutes as if it did
-      DEMO.forEach(([src, t], i) => setTimeout(() => void addSegment(src, t), i * 1200));
+      DEMO.forEach(([src, t], i) => setTimeout(() => addSegment(src, t), i * 1200));
       setTimeout(() => { demoBtn.disabled = false; }, DEMO.length * 1200);
     });
   }
@@ -522,6 +552,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
 
   return async () => {
     for (const k of [...sources.keys()]) stopSource(k);
+    echo.flush();
+    echo.dispose();
     removeEventListener('beforeunload', beforeUnload);
     document.removeEventListener('visibilitychange', onVisible);
     rolling.stop();
