@@ -2,6 +2,7 @@
 // people repeat themselves ("just to confirm, you're still doing X?"), so the same item can come
 // back worded differently; exact-text de-duplication isn't enough.
 import type { ActionItem, Minutes } from './model';
+import { couldBeName } from './speakers';
 
 export type Extracted = Pick<Minutes, 'decisions' | 'actionItems' | 'openQuestions'>;
 
@@ -40,7 +41,8 @@ const NOT_A_PERSON = /^(|room|remote|speaker|unknown|unassigned|someone|somebody
 
 /** Owner as a person's name, or "" when the model gave a source label or placeholder. */
 export function cleanOwner(owner: string): string {
-  const o = owner.trim();
+  // "Priya (Remote)" is how the transcript labels speakers; the owner is Priya.
+  const o = owner.replace(/\s*\((?:room|remote)\)\s*$/i, '').trim();
   return NOT_A_PERSON.test(o) ? '' : o;
 }
 
@@ -50,7 +52,7 @@ export function cleanOwner(owner: string): string {
  */
 export function ownerFromTask(task: string): string {
   const m = /^((?:[A-Z][\p{L}'-]+ ){0,2}[A-Z][\p{L}'-]+) (?:will|to|should|is going to|needs to|has to)\b/u.exec(task.trim());
-  return m && !NOT_A_PERSON.test(m[1]) && !/^(We|I|You|They|He|She|It|This|That|The|Someone)$/.test(m[1]) ? m[1] : '';
+  return m && !NOT_A_PERSON.test(m[1]) && !/^(We|I|You|They|He|She|It|This|That|The|Someone)$/.test(m[1]) && couldBeName(m[1].split(' ')[0]) ? m[1] : '';
 }
 
 /** A deadline phrase in free text: "by the end of the month" -> "end of the month", "on Friday" -> "Friday". */

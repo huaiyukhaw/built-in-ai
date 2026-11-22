@@ -6,6 +6,8 @@ export interface Segment {
   at: number;
   source: SegmentSource;
   text: string;
+  /** Who is speaking, from a self-introduction or a rename; undefined shows the source label */
+  speaker?: string;
   /** Caption-language translation; undefined while pending, null if unavailable */
   translation?: string | null;
 }

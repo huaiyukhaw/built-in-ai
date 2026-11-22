@@ -1,6 +1,7 @@
 // Scores Assistant.minutes() output against hand-written expectations (test/evals/samples/*.json).
 // Pure, so it runs in Vitest and in the eval runner page.
 import type { ActionItem, Minutes, Segment, SegmentSource } from '../lib/model';
+import { labelSpeakers } from '../lib/speakers';
 
 /**
  * Every key must appear in the item's text. A key is one or more alternatives separated by "|",
@@ -203,7 +204,7 @@ const FILLER = [
   'Helpdesk satisfaction scores are holding steady.',
 ];
 
-/** Turn a sample into transcript segments, 20 s apart, with filler spread evenly between real lines. */
+/** Turn a sample into transcript segments, 20 s apart, with filler spread evenly between real lines and speaker names found as they would be live. */
 export function sampleSegments(sample: Sample, start = Date.UTC(2026, 0, 5, 1, 0, 0)): Segment[] {
   const lines = [...sample.lines];
   const filler = sample.filler ?? 0;
@@ -218,5 +219,5 @@ export function sampleSegments(sample: Sample, start = Date.UTC(2026, 0, 5, 1, 0
     });
     lines.splice(0, lines.length, ...out);
   }
-  return lines.map(([source, text], i) => ({ id: `${sample.id}-${i}`, at: start + i * 20_000, source, text }));
+  return labelSpeakers(lines.map(([source, text], i) => ({ id: `${sample.id}-${i}`, at: start + i * 20_000, source, text })));
 }

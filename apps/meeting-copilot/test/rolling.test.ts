@@ -92,6 +92,7 @@ describe('mergeExtractions', () => {
     expect(ownerFromTask('We will freeze deployments')).toBe('');
     expect(ownerFromTask('Remote will send it')).toBe('');
     expect(ownerFromTask('follow up with the bank today')).toBe('');
+    expect(ownerFromTask('Just to confirm, Hafiz, you are doing the migration?')).toBe(''); // eval: long-meeting
     expect(mergeExtractions([{ decisions: [], openQuestions: [], actionItems: [{ owner: '', task: 'Siti will run the session', due: '' }] }]).actionItems[0].owner).toBe('Siti');
   });
 

@@ -7,10 +7,12 @@ import { renderMarkdown } from '../lib/markdown';
 import { mergeExtractions } from '../lib/merge';
 import { LIVE_WINDOW, RollingMinutes } from '../lib/rolling';
 import { CAPTION_LANGS, langOf, SPOKEN_LOCALES, type Meeting, type Minutes, type Segment, type SegmentSource } from '../lib/model';
+import { nextSpeaker, renameSpeaker, sourceLabel } from '../lib/speakers';
 import { clock } from '../lib/transcript';
 import { TranslatorPool } from '../lib/translate';
 import { hasMic, hasTabCapture, prepareTabTranscriber, startMic, startTabAudio, tabLangSupported, type AudioSource } from '../audio/sources';
 import { chooseRemoteKind } from './remote-picker';
+import { askSpeakerName } from './rename-speaker';
 import { flash, h } from './dom';
 import { hasPiP, popOut } from './pip';
 import { icon, renderAppBar, snackbar } from './shell';
@@ -156,7 +158,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     const needsTranslation = langOf(meeting.spokenLocale) !== meeting.captionLang;
     const pending = needsTranslation && s.translation === undefined;
     return h('li', { class: `line ${s.source}`, id: `seg-${s.id}` },
-      h('span', { class: 'speaker' }, icon(s.source === 'tab' ? 'present' : 'mic'), s.source === 'tab' ? 'Remote' : 'Room', h('time', {}, clock(s.at))),
+      h('button', { class: 'speaker', type: 'button', title: `${s.speaker ? `${s.speaker} · ${sourceLabel(s.source)}` : sourceLabel(s.source)} · rename`, on: { click: () => rename(s) } },
+        icon(s.source === 'tab' ? 'present' : 'mic'), s.speaker || sourceLabel(s.source), h('time', {}, clock(s.at))),
       h('span', { class: `main${pending ? ' pending' : ''}`, lang: s.translation ? meeting.captionLang : meeting.spokenLocale },
         s.translation ?? s.text),
       s.translation
@@ -175,7 +178,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   }
 
   async function addSegment(source: SegmentSource, text: string) {
-    const seg: Segment = { id: crypto.randomUUID(), at: Date.now(), source, text };
+    const speaker = nextSpeaker(meeting.segments, source, text);
+    const seg: Segment = { id: crypto.randomUUID(), at: Date.now(), source, text, ...(speaker ? { speaker } : {}) };
     meeting.segments.push(seg);
     stageEmpty.hidden = true;
     lines.hidden = false;
@@ -187,6 +191,25 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     seg.translation = await translator.translate(text, langOf(meeting.spokenLocale), meeting.captionLang);
     document.getElementById(`seg-${seg.id}`)?.replaceWith(lineEl(seg));
     if (stick) lines.scrollTop = lines.scrollHeight;
+    saver.schedule(meeting);
+  }
+
+  /** Rename a speaker from their caption label; redraws the changed lines and redoes minutes work that used the old name. */
+  async function rename(s: Segment) {
+    const known = [...new Set(meeting.segments.map((x) => x.speaker).filter((x): x is string => !!x))];
+    const name = await askSpeakerName(s.speaker ?? '', sourceLabel(s.source), known);
+    const index = meeting.segments.indexOf(s);
+    if (name === null || index < 0 || name === (s.speaker ?? '')) return;
+    const changed = renameSpeaker(meeting.segments, index, name);
+    for (const i of changed) {
+      const seg = meeting.segments[i];
+      document.getElementById(`seg-${seg.id}`)?.replaceWith(lineEl(seg));
+    }
+    if (meeting.rolling?.length && changed.length) {
+      meeting.rolling = meeting.rolling.filter((w) => w.to <= changed[0]);
+      renderMinutes();
+      rolling.poke();
+    }
     saver.schedule(meeting);
   }
 
@@ -464,18 +487,19 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
 
   // ------------------------------------------------------------ demo mode (?demo): sample transcript, no mic needed
   if (new URLSearchParams(location.search).has('demo')) {
-    const DEMO = [
-      'Okay, let us start. Main item is the customer portal go-live.',
-      'Backend is mostly done, but the FPX payment gateway still fails in UAT because the bank certificate expired.',
-      'The bank says they will send the new certificate by Wednesday. Wei Ming, can you chase them?',
-      'Sure, I will follow up with the bank today and again on Wednesday morning.',
-      'If we do not have it by Wednesday, we push go-live from the third of February to the tenth.',
-      'The accessibility audit found fourteen issues on the claims form, mostly contrast and missing labels. Priya will fix them by next Friday.',
-      'Data migration is at eighty percent. The rest have duplicate IC numbers and need manual review.',
-      'Ahmad needs two people from operations for three days. Sarah will ask the ops manager.',
-      'Legal wants the old portal kept read-only for six months, so we agreed on six months.',
-      'Open question: who signs off UAT on the client side? Nobody owns that yet.',
-      'Sarah will update the steering committee on Friday. Thanks everyone.',
+    // Remote speakers introduce themselves or are asked by name, so the demo shows speaker names.
+    const DEMO: [SegmentSource, string][] = [
+      ['mic', 'Okay, let us start. Main item is the customer portal go-live.'],
+      ['tab', 'Hi, Kumar here. Backend is mostly done, but the FPX payment gateway still fails in UAT because the bank certificate expired.'],
+      ['mic', 'The bank says they will send the new certificate by Wednesday. Wei Ming, can you chase them?'],
+      ['tab', 'Sure, I will follow up with the bank today and again on Wednesday morning.'],
+      ['mic', 'If we do not have it by Wednesday, we push go-live from the third of February to the tenth.'],
+      ['mic', 'The accessibility audit found fourteen issues on the claims form, mostly contrast and missing labels. Priya will fix them by next Friday.'],
+      ['tab', 'It’s Ahmad. Data migration is at eighty percent. The rest have duplicate IC numbers and need manual review, so I need two people from operations for three days.'],
+      ['mic', 'Sarah will ask the ops manager.'],
+      ['mic', 'Legal wants the old portal kept read-only for six months, so we agreed on six months.'],
+      ['tab', 'Open question: who signs off UAT on the client side? Nobody owns that yet.'],
+      ['mic', 'Sarah will update the steering committee on Friday. Thanks everyone.'],
     ];
     const demoBtn = h('button', { class: 'ctl', 'aria-label': 'Play demo transcript', title: 'Play demo transcript' }, icon('play'));
     centerCtl.append(demoBtn);
@@ -484,7 +508,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
       void translator.prepare(langOf(meeting.spokenLocale), meeting.captionLang);
       void assistant.warmUp();
       rolling.start(); // the demo has no live source, so draft minutes as if it did
-      DEMO.forEach((t, i) => setTimeout(() => void addSegment(i % 3 === 1 ? 'tab' : 'mic', t), i * 1200));
+      DEMO.forEach(([src, t], i) => setTimeout(() => void addSegment(src, t), i * 1200));
       setTimeout(() => { demoBtn.disabled = false; }, DEMO.length * 1200);
     });
   }

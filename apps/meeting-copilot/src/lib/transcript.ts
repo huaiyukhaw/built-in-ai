@@ -1,13 +1,12 @@
 import type { Meeting, Segment } from './model';
+import { speakerLabel } from './speakers';
 
 export const clock = (ms: number) =>
   new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-const who = (s: Segment) => (s.source === 'tab' ? 'Remote' : 'Room');
-
-/** One line per segment: "[14:03:12] Room: text". Timestamps let Q&A answers cite moments. */
+/** One line per segment: "[14:03:12] Priya (Remote): text", or "Room: text" with no name. Timestamps let Q&A answers cite moments. */
 export function formatTranscript(segments: Segment[]): string {
-  return segments.map((s) => `[${clock(s.at)}] ${who(s)}: ${s.text}`).join('\n');
+  return segments.map((s) => `[${clock(s.at)}] ${speakerLabel(s)}: ${s.text}`).join('\n');
 }
 
 /** Segments finalised within the last `minutes` before `now`. */
@@ -64,7 +63,7 @@ export function matchesQuery(m: Meeting, query: string): boolean {
   if (!q) return true;
   const hay = [
     m.title,
-    ...m.segments.flatMap((s) => [s.text, s.translation ?? '']),
+    ...m.segments.flatMap((s) => [s.text, s.translation ?? '', s.speaker ?? '']),
     m.minutes?.summary ?? '',
     ...(m.minutes?.decisions ?? []),
     ...(m.minutes?.actionItems ?? []).flatMap((a) => [a.owner, a.task, a.due]),

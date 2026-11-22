@@ -216,6 +216,9 @@ main:has(> .meeting) { padding-block-end: 0; }
 
 /* ---------------------------------------------------------------- remote speakers: where is the meeting? */
 .remote-picker { inline-size: min(32rem, 100vw - 2rem); }
+.rename-speaker { inline-size: min(26rem, 100vw - 2rem); }
+.rename-speaker > p { font: var(--body-m); margin-block-end: 1rem; }
+.rename-speaker .field { inline-size: 100%; }
 .remote-picker h2 { margin-block-end: 0.5rem; }
 .remote-picker > p { font: var(--body-m); margin-block-end: 1.25rem; }
 .remote-options { border: 0; margin: 0; padding: 0; display: grid; gap: 0.75rem; }
@@ -278,6 +281,10 @@ main:has(> .meeting) { padding-block-end: 0; }
 }
 .line.tab .speaker { background: var(--remote-container); color: var(--on-remote-container); }
 .speaker time { font-weight: 400; opacity: 0.8; }
+button.speaker { border: 0; cursor: pointer; }
+button.speaker:hover { box-shadow: inset 0 0 0 100vmax color-mix(in srgb, currentColor 8%, transparent); }
+button.speaker:focus-visible { outline: 2px solid var(--primary); outline-offset: 2px; }
+.speaker .src { font-weight: 400; opacity: 0.8; }
 .line .main { font: var(--caption); color: var(--on-surface); }
 .line .main.pending { color: var(--on-surface-variant); }
 .line .orig { font: var(--body-m); color: var(--on-surface-variant); }

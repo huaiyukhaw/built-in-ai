@@ -55,7 +55,7 @@ Not yet verified by a human: the floating caption window, and real speech in a r
 | Made-up text in minutes | 0 seen | 0 (after removing examples) |
 
 - **Speed:** in the live demo, End → minutes took ~30 s instead of ~70 s, because most work was done during the meeting. The 10 s target wasn't met: combining window summaries is still one Summarizer pass.
-- **Owners regressed** when the leaky example ("Siti will run the session" → Siti) was removed. It was also flattering the eval, since Siti is a name from the samples. A blank owner shows as "—", which is safer than invented text. **#4 Speaker names fixes this at the source** by putting names in the transcript the model reads.
+- **Owners regressed** when the leaky example ("Siti will run the session" → Siti) was removed. It was also flattering the eval, since Siti is a name from the samples. A blank owner shows as "—", which is safer than invented text. **#4 Speaker names fixed this at the source** by putting names in the transcript the model reads: owners are back to 100%.
 - **Run-to-run variation is large** (±1–2 items per sample). Compare totals over more than one run before acting on a small change.
 - **The long-meeting sample is harsher than a real meeting:** one real line among ~50 lines of chatter. The model sometimes returns a chatter line as a decision or misses Grace's line in its window.
 
@@ -86,11 +86,34 @@ Six samples in `test/evals/samples/`, scorer in `src/eval/score.ts`, runner at `
 
 Other ideas from the same brainstorm, not yet scheduled: open existing recordings or transcripts (File Handling / Share Target), "someone said your name" alerts (Notifications + Badging), action items across meetings, ask by voice with a spoken answer, live interpreting into earphones, chapters with an optional local recording, whiteboard photo into the minutes, Writer/Rewriter follow-up email, slowing background work when the CPU is under pressure.
 
-### 4. Speaker names · size M
-Lines are only "Room" or "Remote". The model already understood "this is Priya … I will fix …" once prompted to.
-- Detect self-introductions ("this is X", "X here", "hi, I'm X") and carry the name forward for that source until another introduction.
-- Click a speaker label to rename it; renames apply to the meeting and are used in Q&A and minutes.
-- Later: use voice differences (pitch/energy) to split speakers on one source. Research needed.
+### 4. Speaker names · ✅ done 2026-11-23
+**What was built** (`src/lib/speakers.ts`):
+- **Introductions:** "Hi, this is Priya", "Daniel here", "It's Aisha", "Razak speaking", "my name is Mei Ling" name the speaker. Titles are dropped ("Encik Razak" → Razak), and phrases like "this is Monday's plan" or "I'm sure" mid-sentence don't count.
+- **Carry forward:** the name stays with that source (room mic or remote audio) until someone else introduces themselves.
+- **Asked by name:** "Lim Wei Jie, you're handling the comms?" names the next line from the other source. Without this, Lim's answer was labelled with the previous remote speaker (Muthu).
+- **Rename:** click a speaker label, type a name (or leave it empty for "Remote"/"Room"). The run of lines with that label on that source changes. Rolling minutes windows from that point are redone so the "So far" list uses the new name.
+- **The model sees names:** transcript lines read `[time] Priya (Remote): …`. The extraction prompt says the owner is the name before the brackets, and `cleanOwner` strips a "(Remote)" the model copies.
+- **Demo:** remote speakers now introduce themselves, so the demo shows Kumar, Wei Ming and Ahmad.
+
+**Results** (eval, Chrome 157):
+
+| | Rolling windows (#2) | With speaker names (3 runs) |
+|---|---|---|
+| Owners, samples with introductions (remote-intros, malaysian-names) | 3/7 | **7/7 every run** |
+| Owners, all samples | 60% | 80–100% |
+| Action items found | 100% | 94–100% |
+| Recall, all items | 89% | 86–89% |
+| Due dates | 94% | 93–100% |
+| Made-up text | 0 | 0 |
+
+- **What's left for owners:** blank owners in the final run were in samples with no introductions, where the owner is only named by someone else ("Wei Ming, can you chase them?" answered on the same mic, "Sarah will update …"). `ownerFromTask` fills these when the model keeps the name in the task text; otherwise it shows "—".
+- **Prompt order matters:** listing `"I will …"` before `"<name> will …"` cost the portal sample's "Priya will fix them" item in 2 of 2 runs, so the original order was kept.
+- **Also fixed:** "Just to confirm, Hafiz, …?" no longer gives the owner "Just".
+- **Long-meeting chatter as decisions** (up to 7 extra in one run) is still the noisiest part of the eval; unrelated to names.
+
+- In the live demo, the "So far" card listed Wei Ming as owner of the bank follow-up (blank before), and Q&A answered "Wei Ming (Remote) said they would follow up with the bank".
+- **Limit:** names come from what people say, not their voices. Several people on one source share the last name heard until the next introduction.
+- **Later:** use voice differences (pitch/energy) to split speakers on one source. Research needed.
 
 ### 5. Agenda tracker · size M
 - Paste or type the agenda before or at the start of the meeting.

@@ -42,9 +42,8 @@ export const EXTRACT_SCHEMA = {
 // the eval samples would also flatter the eval.
 const EXTRACT_INSTRUCTIONS = [
   'Extract decisions, action items and open questions from part of a meeting transcript. Only include items actually stated in the TRANSCRIPT section.',
-  '- ACTION ITEM: any commitment to do something: "<name> will ...", "I will ...", or "can you ...?" followed by agreement. ' +
-    'Include remote speakers who introduced themselves: "this is <name>" followed by "I will ..." means owner <name>.',
-  '- OWNER: the name of the person who will do it, as said in the transcript. "Room" and "Remote" are microphones, not people.',
+  '- ACTION ITEM: any commitment to do something: "<name> will ...", "I will ...", or "can you ...?" followed by agreement.',
+  '- OWNER: the name of the person who will do it. Lines start with the speaker: in "<name> (Remote): I will ..." the owner is <name>. A bare "Room" or "Remote" is a microphone, not a person.',
   '- DUE: the day or date stated for that task, copied as said ("by <day>" -> "<day>"). Use "" if no day or date is stated for it.',
   '- DECISION: something the group agreed or settled, including a plan that only applies if a condition is met. Status reports are not decisions.',
   '- OPEN QUESTION: a question or issue flagged as unresolved that is NOT answered later in the transcript.',

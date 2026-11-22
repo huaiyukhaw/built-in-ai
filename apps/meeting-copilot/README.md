@@ -62,6 +62,7 @@ bash test/e2e/chrome.sh ai      # then open /eval.html in that window and press 
 |---|---|
 | Room mic captions | Web Speech API, run on-device when Chrome supports it for the language (badge shows 🔒 or ☁️) |
 | Remote speaker captions | A short "Where is your meeting?" dialog, then Chrome's share picker. **Browser tab** (Teams/Zoom/Meet in Chrome): pick the tab and keep "Also share tab audio" on. **Desktop app** (Teams/Zoom on Windows): pick "Entire screen" and turn on "Share system audio". Audio is split at pauses (`VoiceChunker`), and each clip is transcribed by the **Prompt API audio input** |
+| Speaker names | A line like "Hi, this is Priya", "Daniel here" or "It's Aisha" names that speaker, and the name carries forward on that source (room mic or remote audio) until someone else introduces themselves. A question put to someone by name ("Wei Ming, can you chase them?") names the next answer from the other source. Click a speaker label to rename it; the run of lines with that label changes. Names go into the transcript the model reads (`Priya (Remote): …`), so Q&A and minutes use them |
 | Translated captions | Translator API, one cached translator per language pair, results kept in spoken order |
 | Floating captions | Document Picture-in-Picture: the captions panel moves into an always-on-top window |
 | Ask the meeting | Prompt API answers from the transcript and cites `[HH:MM:SS]` timestamps; long meetings keep the most recent context that fits |
@@ -77,6 +78,7 @@ bash test/e2e/chrome.sh ai      # then open /eval.html in that window and press 
 ```
 src/
   lib/model.ts        Meeting / Segment types, language lists
+  lib/speakers.ts     speaker names from introductions, rename           (tested)
   lib/transcript.ts   pure helpers: format, windowing, chunking, search   (tested)
   lib/ai.ts           availability-with-timeout, create-with-progress
   lib/translate.ts    TranslatorPool
@@ -101,7 +103,7 @@ public/pcm-worklet.js AudioWorklet that batches PCM to the main thread
 - **Desktop apps need a whole-screen share.** Chrome can't capture one app window's sound, so the app captures system audio, including notifications and music. System audio is offered on Windows and ChromeOS; on macOS use the meeting's browser version.
 - **Malay and Tamil** mic speech isn't available on-device and goes to Google's speech service. Malay isn't supported by the Translator.
 - **Q&A and minutes** are tuned for English transcripts.
-- **No speaker identification**: lines are labelled only "Room" (mic) or "Remote" (tab).
+- **Speaker names come from what people say**, not from their voices. Several people on one source share the last name heard until someone introduces themselves or is asked by name; click the label to fix it.
 - If the mic picks up the meeting from your speakers while tab audio is also on, lines appear twice. Use headphones.
 
 ## Privacy
