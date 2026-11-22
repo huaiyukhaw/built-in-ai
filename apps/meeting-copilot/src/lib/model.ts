@@ -22,6 +22,21 @@ export interface Minutes {
   partial?: string;
 }
 
+/**
+ * Minutes work for one stretch of the transcript, segments [from, to). Built in the background
+ * while the meeting is live, so "Generate minutes" only has to merge them.
+ */
+export interface MinutesWindow {
+  from: number;
+  to: number;
+  summary: string;
+  decisions: string[];
+  actionItems: ActionItem[];
+  openQuestions: string[];
+  /** false when the Prompt API wasn't available, so only the summary was made */
+  extracted: boolean;
+}
+
 export interface Meeting {
   id: string;
   title: string;
@@ -33,6 +48,8 @@ export interface Meeting {
   captionLang: string;
   segments: Segment[];
   minutes?: Minutes;
+  /** Rolling minutes windows, in order, covering segments from 0 without gaps */
+  rolling?: MinutesWindow[];
 }
 
 export const SPOKEN_LOCALES: { locale: string; label: string }[] = [

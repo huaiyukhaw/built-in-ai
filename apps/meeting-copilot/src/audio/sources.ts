@@ -1,4 +1,5 @@
 import { create, type Progress } from '../lib/ai';
+import { modelGate } from '../lib/gate';
 import { langOf, PROMPT_LANGS } from '../lib/model';
 import { VoiceChunker } from './chunker';
 
@@ -149,7 +150,8 @@ export async function startTabAudio(transcriber: Promise<LanguageModelSession>, 
     backlog++;
     if (backlog > 3) ev.onStatus?.(`Transcription is ${backlog} clips behind…`);
     // Clips already queued (including the final flush on stop) still get transcribed.
-    queue = queue.then(async () => {
+    // Background minutes work waits while transcription runs (see ModelGate).
+    queue = queue.then(() => modelGate.live(async () => {
       const buffer = new AudioBuffer({ length: samples.length, sampleRate: SAMPLE_RATE, numberOfChannels: 1 });
       buffer.copyToChannel(samples as Float32Array<ArrayBuffer>, 0);
       ev.onInterim?.('…');
@@ -164,7 +166,7 @@ export async function startTabAudio(transcriber: Promise<LanguageModelSession>, 
         s.destroy();
         ev.onInterim?.('');
       }
-    }).catch((err: Error) => ev.onError(err)).finally(() => {
+    })).catch((err: Error) => ev.onError(err)).finally(() => {
       backlog--;
       if (backlog <= 1) ev.onStatus?.('');
     });

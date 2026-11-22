@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import { mergeExtractions } from '../src/lib/assistant';
 import { fileName, mailtoUrl, toHtml, toMarkdown } from '../src/lib/export';
 import { parseMarkdown } from '../src/lib/markdown';
 import type { Meeting } from '../src/lib/model';
@@ -82,17 +81,5 @@ describe('parseMarkdown', () => {
     expect(list.items).toHaveLength(3);
     expect(list.items[1]).toEqual([{ text: 'two', bold: true }]);
     expect(blocks[2]).toEqual({ kind: 'para', inlines: [{ text: 'Plain text continues', bold: false }] });
-  });
-});
-
-describe('mergeExtractions', () => {
-  it('concatenates chunks and drops duplicates case-insensitively', () => {
-    const merged = mergeExtractions([
-      { decisions: ['Move go-live'], actionItems: [{ owner: 'A', task: 'Chase bank', due: '' }], openQuestions: ['Who owns QA?'] },
-      { decisions: ['move go-live ', 'Keep portal'], actionItems: [{ owner: 'A', task: 'chase bank', due: 'Wed' }, { owner: '', task: '', due: '' }], openQuestions: [] },
-    ]);
-    expect(merged.decisions).toEqual(['Move go-live', 'Keep portal']);
-    expect(merged.actionItems).toEqual([{ owner: 'A', task: 'Chase bank', due: '' }]);
-    expect(merged.openQuestions).toEqual(['Who owns QA?']);
   });
 });

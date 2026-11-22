@@ -2,8 +2,11 @@ import { Assistant } from '../lib/assistant';
 import { AiUnavailableError, availability, type ApiName } from '../lib/ai';
 import { autosaver, saveMeeting } from '../lib/db';
 import { fileName, mailtoUrl, toHtml, toMarkdown } from '../lib/export';
+import { modelGate } from '../lib/gate';
 import { renderMarkdown } from '../lib/markdown';
-import { CAPTION_LANGS, langOf, SPOKEN_LOCALES, type Meeting, type Segment, type SegmentSource } from '../lib/model';
+import { mergeExtractions } from '../lib/merge';
+import { LIVE_WINDOW, RollingMinutes } from '../lib/rolling';
+import { CAPTION_LANGS, langOf, SPOKEN_LOCALES, type Meeting, type Minutes, type Segment, type SegmentSource } from '../lib/model';
 import { clock } from '../lib/transcript';
 import { TranslatorPool } from '../lib/translate';
 import { hasMic, hasTabCapture, prepareTabTranscriber, startMic, startTabAudio, tabLangSupported, type AudioSource } from '../audio/sources';
@@ -46,6 +49,11 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   };
   const translator = new TranslatorPool(onProgress);
   const assistant = new Assistant(onProgress);
+  // While live, minutes are drafted in the background a few minutes at a time. The demo uses
+  // small windows so the live action items list shows up within a minute.
+  const demo = new URLSearchParams(location.search).has('demo');
+  const rolling = new RollingMinutes(meeting, assistant, modelGate, () => { saver.schedule(meeting); renderMinutes(); },
+    demo ? { maxChars: 500, maxAgeMs: 20_000, minChars: 200 } : LIVE_WINDOW);
   const banner = h('div', { class: 'banner', role: 'region', 'aria-label': 'On-device AI status', hidden: true });
 
   // ------------------------------------------------------------ stage (captions)
@@ -175,6 +183,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     lines.append(lineEl(seg));
     if (stick) lines.scrollTop = lines.scrollHeight;
     saver.schedule(meeting);
+    rolling.poke();
     seg.translation = await translator.translate(text, langOf(meeting.spokenLocale), meeting.captionLang);
     document.getElementById(`seg-${seg.id}`)?.replaceWith(lineEl(seg));
     if (stick) lines.scrollTop = lines.scrollHeight;
@@ -203,6 +212,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     privacy.title = local ? 'Audio is transcribed on this device' : 'Chrome sends room-mic audio to Google’s speech service for this language';
     refreshTabHint();
     void updateWakeLock();
+    if (sources.size) rolling.start(); else rolling.stop();
+    renderMinutes();
   }
 
   function stopSource(kind: SegmentSource) {
@@ -349,22 +360,35 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     const m = meeting.minutes;
     exportBar.hidden = !m;
     genBtn.lastChild!.textContent = m ? 'Regenerate minutes' : 'Generate minutes';
+    const list = (items: string[]) => items.length ? h('ul', {}, ...items.map((i) => h('li', {}, i))) : h('p', { class: 'empty-note' }, 'None recorded.');
+    const actionTable = (items: Minutes['actionItems']) => h('table', { class: 'table' },
+      h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Owner'), h('th', { scope: 'col' }, 'Task'), h('th', { scope: 'col' }, 'Due'))),
+      h('tbody', {}, ...items.map((a) => h('tr', {}, h('td', {}, a.owner || '—'), h('td', {}, a.task), h('td', {}, a.due || '—')))));
     if (!m) {
-      minutesBody.replaceChildren(h('p', { class: 'empty-note' },
-        'Generate minutes any time, during or after the meeting — or press End.',
-        langOf(meeting.spokenLocale) !== 'en' ? ' Minutes work best for English meetings.' : ''));
+      const live = stage.classList.contains('is-live');
+      const draft = meeting.rolling?.length ? mergeExtractions(meeting.rolling) : undefined;
+      const upTo = draft ? meeting.segments[meeting.rolling!.at(-1)!.to - 1] : undefined;
+      minutesBody.replaceChildren(
+        draft
+          ? h('section', { class: 'so-far', 'aria-labelledby': 'so-far-h' },
+            h('h3', { id: 'so-far-h' }, 'So far'),
+            h('p', { class: 'note' }, `Drafted on this device as the meeting goes · up to ${upTo ? clock(upTo.at) : ''}`),
+            h('h4', {}, 'Action items'),
+            draft.actionItems.length ? actionTable(draft.actionItems) : h('p', { class: 'empty-note' }, 'None yet.'),
+            draft.decisions.length ? h('h4', {}, 'Decisions') : '', draft.decisions.length ? list(draft.decisions) : '')
+          : '',
+        h('p', { class: 'empty-note' },
+          draft ? 'Press End or Generate minutes for the summary and the final list.'
+            : live ? 'Action items show up here every few minutes while you’re live. Press End for the full minutes.'
+              : 'Generate minutes any time, during or after the meeting, or press End.',
+          langOf(meeting.spokenLocale) !== 'en' ? ' Minutes work best for English meetings.' : ''));
       return;
     }
-    const list = (items: string[]) => items.length ? h('ul', {}, ...items.map((i) => h('li', {}, i))) : h('p', { class: 'empty-note' }, 'None recorded.');
     minutesBody.replaceChildren(
       h('h3', {}, 'Summary'), h('div', {}, renderMarkdown(m.summary)),
       h('h3', {}, 'Decisions'), list(m.decisions),
       h('h3', {}, 'Action items'),
-      m.actionItems.length
-        ? h('table', { class: 'table' },
-          h('thead', {}, h('tr', {}, h('th', { scope: 'col' }, 'Owner'), h('th', { scope: 'col' }, 'Task'), h('th', { scope: 'col' }, 'Due'))),
-          h('tbody', {}, ...m.actionItems.map((a) => h('tr', {}, h('td', {}, a.owner || '—'), h('td', {}, a.task), h('td', {}, a.due || '—')))))
-        : h('p', { class: 'empty-note' }, 'None recorded.'),
+      m.actionItems.length ? actionTable(m.actionItems) : h('p', { class: 'empty-note' }, 'None recorded.'),
       h('h3', {}, 'Open questions'), list(m.openQuestions),
       m.partial ? h('div', { class: 'banner' }, icon('info'), h('div', {}, m.partial)) : '',
       h('p', { class: 'note' }, `Generated ${new Date(m.generatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} from ${meeting.segments.length} lines · review before sending`));
@@ -376,10 +400,11 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     genBtn.disabled = true;
     minutesBody.replaceChildren(h('p', { class: 'empty-note' }, 'Writing minutes…'), h('progress', { 'aria-label': 'Writing minutes' }));
     try {
+      // Reuses windows drafted in the background; only the rest of the transcript is read now.
       meeting.minutes = await assistant.minutes(meeting.segments, (msg) => {
         const p = minutesBody.querySelector('.empty-note');
         if (p) p.textContent = msg;
-      });
+      }, meeting.rolling ??= []);
       await saveMeeting(meeting);
       snackbar(`Minutes ready · ${meeting.minutes.actionItems.length} action item${meeting.minutes.actionItems.length === 1 ? '' : 's'}`);
     } catch (err) { fail(err); } finally {
@@ -458,6 +483,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
       demoBtn.disabled = true;
       void translator.prepare(langOf(meeting.spokenLocale), meeting.captionLang);
       void assistant.warmUp();
+      rolling.start(); // the demo has no live source, so draft minutes as if it did
       DEMO.forEach((t, i) => setTimeout(() => void addSegment(i % 3 === 1 ? 'tab' : 'mic', t), i * 1200));
       setTimeout(() => { demoBtn.disabled = false; }, DEMO.length * 1200);
     });
@@ -474,6 +500,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     for (const k of [...sources.keys()]) stopSource(k);
     removeEventListener('beforeunload', beforeUnload);
     document.removeEventListener('visibilitychange', onVisible);
+    rolling.stop();
     await saver.flush();
     translator.destroy();
   };

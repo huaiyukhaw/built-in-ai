@@ -77,3 +77,42 @@ export function durationLabel(m: Meeting, now = Date.now()): string {
   const mins = Math.max(0, Math.round(((m.endedAt ?? (m.segments.at(-1)?.at ?? now)) - m.startedAt) / 60_000));
   return mins < 60 ? `${mins} min` : `${Math.floor(mins / 60)} h ${mins % 60} min`;
 }
+
+export interface WindowRange { from: number; to: number }
+
+export interface WindowOptions {
+  /** Close a window once it holds this many transcript characters. */
+  maxChars: number;
+  /** End of meeting: also close the last, partly filled window. */
+  final?: boolean;
+  /** While live, also close a partly filled window once its first line is this old… */
+  maxAgeMs?: number;
+  /** …and it holds at least this many characters. */
+  minChars?: number;
+  now?: number;
+}
+
+/**
+ * Split segments[from..] into consecutive windows for rolling minutes. Full windows are always
+ * returned; the trailing partial one only at the end of the meeting, or once it is old enough
+ * that the live action items list should catch up.
+ */
+export function planWindows(segments: Segment[], from: number, o: WindowOptions): WindowRange[] {
+  const out: WindowRange[] = [];
+  let start = from;
+  let used = 0;
+  for (let i = from; i < segments.length; i++) {
+    const len = formatTranscript([segments[i]]).length + 1;
+    if (i > start && used + len > o.maxChars) {
+      out.push({ from: start, to: i });
+      start = i;
+      used = 0;
+    }
+    used += len;
+  }
+  if (start < segments.length) {
+    const old = (o.now ?? Date.now()) - segments[start].at >= (o.maxAgeMs ?? Infinity);
+    if (o.final || (old && used >= (o.minChars ?? 0))) out.push({ from: start, to: segments.length });
+  }
+  return out;
+}

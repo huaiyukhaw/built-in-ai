@@ -5,7 +5,7 @@ import '@fontsource-variable/google-sans-flex/wght.css';
 import '../styles/tokens.css';
 import '../styles/components.css';
 import { Assistant } from '../lib/assistant';
-import type { Minutes } from '../lib/model';
+import type { Minutes, MinutesWindow } from '../lib/model';
 import { h } from '../ui/dom';
 import { sampleSegments, scoreMinutes, totals, type Sample, type SampleScore, type Totals } from './score';
 
@@ -16,6 +16,8 @@ export interface EvalRun {
   totals: Totals;
   scores: SampleScore[];
   outputs: Record<string, Minutes | undefined>;
+  /** Per-window results, to tell a model miss from a merge mistake */
+  windows?: Record<string, MinutesWindow[]>;
 }
 
 declare global {
@@ -122,11 +124,14 @@ async function run() {
   const assistant = new Assistant((api, loaded) => { if (loaded !== 1) setStage(`Downloading ${api} model…${loaded == null ? '' : ` ${Math.round(loaded * 100)}%`}`); });
   const scores: SampleScore[] = [];
   const outputs: EvalRun['outputs'] = {};
+  const windows: Record<string, MinutesWindow[]> = {};
   for (const [i, sample] of selected.entries()) {
     const stages: string[] = [];
     const t0 = performance.now();
     try {
-      const m = await assistant.minutes(sampleSegments(sample), (msg) => { stages.push(msg); setStage(`${i + 1}/${selected.length} ${sample.id}: ${msg}`); });
+      const ws: MinutesWindow[] = [];
+      windows[sample.id] = ws;
+      const m = await assistant.minutes(sampleSegments(sample), (msg) => { stages.push(msg); setStage(`${i + 1}/${selected.length} ${sample.id}: ${msg}`); }, ws);
       outputs[sample.id] = m;
       scores.push(scoreMinutes(sample, m, performance.now() - t0, stages));
     } catch (err) {
@@ -136,7 +141,7 @@ async function run() {
     }
     render(scores, outputs);
   }
-  const result: EvalRun = { date: new Date().toISOString(), userAgent: navigator.userAgent, totals: totals(scores), scores, outputs };
+  const result: EvalRun = { date: new Date().toISOString(), userAgent: navigator.userAgent, totals: totals(scores), scores, outputs, windows };
   window.evalState = { running: false, done: true, stage: 'done', run: result };
   setStage(`Done in ${result.totals.seconds} s.`);
   runBtn.disabled = false;

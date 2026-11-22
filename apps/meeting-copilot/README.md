@@ -53,7 +53,7 @@ bash test/e2e/chrome.sh ai      # then open /eval.html in that window and press 
 
 - **Samples:** `test/evals/samples/*.json` holds six transcripts: a plain meeting, remote speaker introductions, conditional and rejected decisions, a meeting with no action items, Malaysian names, and a long meeting (about 400 lines) that forces chunking. Each has expected decisions, action items (with owner and due date) and open questions, written as keyword lists.
 - **Scoring:** the scorer (`src/eval/score.ts`, unit-tested) matches keywords at word starts. It reports recall, owner and due accuracy, extra items, and "traps" (rejected proposals that came back as action items).
-- **Baseline:** download the JSON and save it as `test/evals/results/baseline.json`. The page then shows each new run's change against it.
+- **Baseline:** download the JSON and save it as `test/evals/results/baseline.json`. The page then shows each new run's change against it. The current baseline is the rolling-window pipeline from 2026-11-23; ROADMAP.md #2 and #3 have both sets of numbers.
 - **Options:** `?only=id1,id2` runs some samples only; `?autorun` starts at once. Results vary between runs, so treat a change of one item as noise.
 
 ## Features
@@ -66,7 +66,8 @@ bash test/e2e/chrome.sh ai      # then open /eval.html in that window and press 
 | Floating captions | Document Picture-in-Picture: the captions panel moves into an always-on-top window |
 | Ask the meeting | Prompt API answers from the transcript and cites `[HH:MM:SS]` timestamps; long meetings keep the most recent context that fits |
 | Catch me up | Summarizer TL;DR of the last 2 / 5 / 10 minutes |
-| Minutes | Summarizer key points (summary-of-summaries for long meetings) plus Prompt API JSON-schema extraction of decisions, action items and open questions |
+| Minutes | Drafted in the background while you're live, ~3 minutes of talk at a time: Summarizer key points plus Prompt API JSON-schema extraction of decisions, action items and open questions. A **So far** list of action items grows in the Minutes tab. End or Generate minutes only reads the rest and merges (near-duplicates collapse; "Room"/"Remote" are never used as owners) |
+| Sharing the model | One on-device model does everything, so background minutes wait while remote audio is being transcribed and stop at once when you ask a question (`ModelGate`) |
 | Export | Rich-HTML copy that pastes as formatted text with a table into Outlook/Teams; `.md` download; `mailto:` draft; Web Share |
 | History | IndexedDB, searchable across titles, transcripts, translations and minutes |
 | Stays awake | Screen Wake Lock while capturing |
@@ -79,7 +80,10 @@ src/
   lib/transcript.ts   pure helpers: format, windowing, chunking, search   (tested)
   lib/ai.ts           availability-with-timeout, create-with-progress
   lib/translate.ts    TranslatorPool
-  lib/assistant.ts    Q&A, catch-up, minutes                              (merge logic tested)
+  lib/assistant.ts    Q&A, catch-up, minutes per window and final merge
+  lib/merge.ts        fuzzy de-duplication of items across windows        (tested)
+  lib/rolling.ts      background minutes while live                       (tested)
+  lib/gate.ts         priorities for the shared model                     (tested)
   lib/export.ts       Markdown / inline-styled HTML / mailto              (tested)
   lib/markdown.ts     safe Markdown subset → DOM (textContent only)       (tested)
   lib/db.ts           IndexedDB store + debounced autosave                (tested)

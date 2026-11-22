@@ -1,9 +1,22 @@
 // Everything that reasons over the transcript: Q&A, catch-me-up and minutes.
 import { AiUnavailableError, contextWindow, create, type Progress } from './ai';
-import type { ActionItem, Minutes, Segment } from './model';
-import { charBudget, chunkSegments, fitRecent, formatTranscript, lastMinutes } from './transcript';
+import { modelGate } from './gate';
+import { mergeExtractions, type Extracted } from './merge';
+import type { Minutes, MinutesWindow, Segment } from './model';
+import { charBudget, fitRecent, formatTranscript, lastMinutes, planWindows, type WindowRange } from './transcript';
+
+export { mergeExtractions } from './merge';
 
 const TEXT_EN = { expectedInputs: [{ type: 'text' as const, languages: ['en'] }], expectedOutputs: [{ type: 'text' as const, languages: ['en'] }] };
+
+/**
+ * Transcript characters per minutes window (~1,000 tokens, roughly 3–4 minutes of talk).
+ * The eval showed extraction losing items on long inputs even when they fit the context,
+ * so windows are kept small; the final merge is cheap.
+ */
+export const WINDOW_CHARS = 3000;
+/** Lines before a window, given to the extractor only to resolve who "I" is. */
+const CONTEXT_LINES = 4;
 
 export const EXTRACT_SCHEMA = {
   type: 'object',
@@ -24,20 +37,21 @@ export const EXTRACT_SCHEMA = {
   additionalProperties: false,
 } as const;
 
-type Extracted = Pick<Minutes, 'decisions' | 'actionItems' | 'openQuestions'>;
-
-/** Merge per-chunk extractions, dropping case-insensitive duplicates. */
-export function mergeExtractions(parts: Extracted[]): Extracted {
-  const uniq = <T>(items: T[], key: (t: T) => string) => {
-    const seen = new Set<string>();
-    return items.filter((i) => { const k = key(i).trim().toLowerCase(); if (!k || seen.has(k)) return false; seen.add(k); return true; });
-  };
-  return {
-    decisions: uniq(parts.flatMap((p) => p.decisions), (s) => s),
-    actionItems: uniq(parts.flatMap((p) => p.actionItems), (a: ActionItem) => a.task),
-    openQuestions: uniq(parts.flatMap((p) => p.openQuestions), (s) => s),
-  };
-}
+// Examples use <placeholders> only. Gemini Nano copied concrete example sentences, names and
+// dates into real minutes ("keep the old site for a year", due "next Friday"), and names from
+// the eval samples would also flatter the eval.
+const EXTRACT_INSTRUCTIONS = [
+  'Extract decisions, action items and open questions from part of a meeting transcript. Only include items actually stated in the TRANSCRIPT section.',
+  '- ACTION ITEM: any commitment to do something: "<name> will ...", "I will ...", or "can you ...?" followed by agreement. ' +
+    'Include remote speakers who introduced themselves: "this is <name>" followed by "I will ..." means owner <name>.',
+  '- OWNER: the name of the person who will do it, as said in the transcript. "Room" and "Remote" are microphones, not people.',
+  '- DUE: the day or date stated for that task, copied as said ("by <day>" -> "<day>"). Use "" if no day or date is stated for it.',
+  '- DECISION: something the group agreed or settled, including a plan that only applies if a condition is met. Status reports are not decisions.',
+  '- OPEN QUESTION: a question or issue flagged as unresolved that is NOT answered later in the transcript.',
+  'Lines under EARLIER CONTEXT are only there to tell you who is speaking; extract nothing from them.',
+  'Small talk, status updates and requests during the call (such as sharing a screen) are not items. Many parts of a meeting have none: then return empty lists.',
+  'Write every item with the words and facts from the TRANSCRIPT, one short sentence each. Never add names, dates or facts that are not in it.',
+].join('\n');
 
 export class Assistant {
   #qaBase?: Promise<LanguageModelSession>;
@@ -48,7 +62,7 @@ export class Assistant {
 
   /** Pre-download models from a user gesture so later calls are instant. */
   async warmUp() {
-    await Promise.allSettled([this.#qa(), this.#summarizer('key-points', 'short')]);
+    await Promise.allSettled([this.#qa(), this.#summarizer('key-points', 'long'), this.#extractor()]);
   }
 
   #qa() {
@@ -65,16 +79,7 @@ export class Assistant {
   #extractor() {
     this.#extractBase ??= create<LanguageModelSession>('LanguageModel', {
       ...TEXT_EN,
-      initialPrompts: [{ role: 'system', content:
-        [
-          'Extract decisions, action items and open questions from a meeting transcript. Only include items actually stated.',
-          '- ACTION ITEM: any commitment to do something, e.g. "X will ...", "I will ...", or "can you ...?" followed by agreement. ' +
-            'Include every person\'s commitments, including remote speakers who introduce themselves ("this is Priya" then "I will fix ..." means owner Priya).',
-          '- DUE: copy any day or date mentioned for that task ("by Wednesday" -> "Wednesday", "next Friday" -> "next Friday"). Use "" only if none is mentioned.',
-          '- DECISION: anything agreed or settled ("we agreed ...", "let\'s go with ...", "we push X if Y").',
-          '- OPEN QUESTION: anything asked or flagged as unresolved.',
-          'Keep each item to one short sentence.',
-        ].join('\n') }],
+      initialPrompts: [{ role: 'system', content: EXTRACT_INSTRUCTIONS }],
     }, this.onProgress);
     this.#extractBase.catch(() => { this.#extractBase = undefined; });
     return this.#extractBase;
@@ -94,35 +99,39 @@ export class Assistant {
   }
 
   /** Stream an answer to a question about the meeting so far. */
-  async ask(question: string, segments: Segment[], onText: (t: string) => void, signal?: AbortSignal): Promise<string> {
-    if (!segments.length) return 'Nothing has been transcribed yet.';
-    const base = await this.#qa();
-    const s = await base.clone({ signal });
-    try {
-      const transcript = formatTranscript(fitRecent(segments, charBudget(contextWindow(s))));
+  ask(question: string, segments: Segment[], onText: (t: string) => void, signal?: AbortSignal): Promise<string> {
+    if (!segments.length) return Promise.resolve('Nothing has been transcribed yet.');
+    return modelGate.urgent(async () => {
+      const base = await this.#qa();
+      const s = await base.clone({ signal });
+      try {
+        const transcript = formatTranscript(fitRecent(segments, charBudget(contextWindow(s))));
+        let full = '';
+        for await (const chunk of s.promptStreaming(`TRANSCRIPT:\n${transcript}\n\nQUESTION: ${question}`, { signal })) {
+          full += chunk;
+          onText(full);
+        }
+        return full;
+      } finally {
+        s.destroy();
+      }
+    });
+  }
+
+  /** Key points of the last N minutes. */
+  catchUp(segments: Segment[], minutes: number, onText: (t: string) => void, now = Date.now()): Promise<string> {
+    const recent = lastMinutes(segments, minutes, now);
+    if (!recent.length) return Promise.resolve(`Nothing was said in the last ${minutes} min.`);
+    return modelGate.urgent(async () => {
+      const s = await this.#summarizer('key-points', 'short');
+      const text = await this.#fitForSummarizer(s, recent);
       let full = '';
-      for await (const chunk of s.promptStreaming(`TRANSCRIPT:\n${transcript}\n\nQUESTION: ${question}`, { signal })) {
+      for await (const chunk of s.summarizeStreaming(text, { context: `Summarize only what happened in these last ${minutes} minutes for someone who just tuned back in.` })) {
         full += chunk;
         onText(full);
       }
       return full;
-    } finally {
-      s.destroy();
-    }
-  }
-
-  /** TL;DR of the last N minutes. */
-  async catchUp(segments: Segment[], minutes: number, onText: (t: string) => void, now = Date.now()): Promise<string> {
-    const recent = lastMinutes(segments, minutes, now);
-    if (!recent.length) return `Nothing was said in the last ${minutes} min.`;
-    const s = await this.#summarizer('key-points', 'short');
-    const text = await this.#fitForSummarizer(s, recent);
-    let full = '';
-    for await (const chunk of s.summarizeStreaming(text, { context: `Summarize only what happened in these last ${minutes} minutes for someone who just tuned back in.` })) {
-      full += chunk;
-      onText(full);
-    }
-    return full;
+    });
   }
 
   /** Summarizer input must fit inputQuota; for catch-up we keep the most recent part. */
@@ -136,53 +145,75 @@ export class Assistant {
     return text;
   }
 
-  /** Summary of summaries for transcripts longer than the Summarizer's quota. */
-  async #summarizeAll(segments: Segment[], onStage: (msg: string) => void): Promise<string> {
-    const final = await this.#summarizer('key-points', 'long');
-    const full = formatTranscript(segments);
-    if ((await final.measureInputUsage(full)) <= final.inputQuota) return final.summarize(full);
+  // ---------------------------------------------------------------- minutes
 
-    const chunks = chunkSegments(segments, charBudget(final.inputQuota, 0.8));
-    const partials: string[] = [];
-    for (const [i, c] of chunks.entries()) {
-      onStage(`Summarizing part ${i + 1} of ${chunks.length}…`);
-      partials.push(await final.summarize(formatTranscript(c)));
-    }
-    onStage('Combining summaries…');
-    let combined = partials.join('\n');
-    while ((await final.measureInputUsage(combined)) > final.inputQuota && partials.length > 1) {
-      partials.splice(0, 2, await final.summarize(partials.slice(0, 2).join('\n')));
-      combined = partials.join('\n');
-    }
-    return final.summarize(combined, { context: 'These are summaries of consecutive parts of one meeting. Merge into one set of key points.' });
-  }
+  /**
+   * Summarize and extract one window of the transcript. Used in the background while the meeting
+   * is live (pass the gate's signal) and for whatever is left when minutes are generated.
+   */
+  async processWindow(segments: Segment[], range: WindowRange, signal?: AbortSignal): Promise<MinutesWindow> {
+    const part = segments.slice(range.from, range.to);
+    const summarizer = await this.#summarizer('key-points', 'long');
+    const summary = await summarizer.summarize(formatTranscript(part), { signal });
 
-  async minutes(segments: Segment[], onStage: (msg: string) => void): Promise<Minutes> {
-    if (!segments.length) throw new Error('Nothing to summarize yet.');
-    onStage('Summarizing…');
-    const summary = await this.#summarizeAll(segments, onStage);
-
-    onStage('Extracting decisions and action items…');
     let base: LanguageModelSession;
     try {
       base = await this.#extractor();
     } catch (err) {
       // The Summarizer and Prompt API ship separately; a summary alone is still useful.
       if (!(err instanceof AiUnavailableError)) throw err;
-      return { generatedAt: Date.now(), summary, decisions: [], actionItems: [], openQuestions: [],
-        partial: `Decisions and action items need the Prompt API (${err.reason}).` };
+      return { ...range, summary, decisions: [], actionItems: [], openQuestions: [], extracted: false };
     }
-    const chunks = chunkSegments(segments, charBudget(contextWindow(base), 0.5));
-    const parts: Extracted[] = [];
-    for (const [i, c] of chunks.entries()) {
-      if (chunks.length > 1) onStage(`Extracting action items (${i + 1}/${chunks.length})…`);
-      const s = await base.clone();
-      try {
-        parts.push(JSON.parse(await s.prompt(formatTranscript(c), { responseConstraint: EXTRACT_SCHEMA })) as Extracted);
-      } finally {
-        s.destroy();
+    const earlier = segments.slice(Math.max(0, range.from - CONTEXT_LINES), range.from);
+    const input = (earlier.length ? `EARLIER CONTEXT:\n${formatTranscript(earlier)}\n\n` : '') + `TRANSCRIPT:\n${formatTranscript(part)}`;
+    const s = await base.clone({ signal });
+    try {
+      const x = JSON.parse(await s.prompt(input, { responseConstraint: EXTRACT_SCHEMA, signal })) as Extracted;
+      return { ...range, summary, ...x, extracted: true };
+    } finally {
+      s.destroy();
+    }
+  }
+
+  /**
+   * Merge window summaries into one set of key points. In a long meeting most windows are routine
+   * talk, so the extracted decisions and action items are passed as context to keep them in focus.
+   */
+  async #mergeSummaries(summaries: string[], onStage: (msg: string) => void, x: Extracted): Promise<string> {
+    if (summaries.length === 1) return summaries[0];
+    onStage('Combining summaries…');
+    const s = await this.#summarizer('key-points', 'long');
+    const parts = [...summaries];
+    while ((await s.measureInputUsage(parts.join('\n'))) > s.inputQuota && parts.length > 2) {
+      parts.splice(0, 2, await s.summarize(parts.slice(0, 2).join('\n')));
+    }
+    const focus = [...x.decisions, ...x.actionItems.map((a) => `${a.owner ? `${a.owner}: ` : ''}${a.task}`)].slice(0, 15);
+    return s.summarize(parts.join('\n'), {
+      context: 'These are key points from consecutive parts of one meeting, in order. Merge them into one set of key points. ' +
+        'Lead with what was decided or assigned; leave out routine status updates.' +
+        (focus.length ? ` Decisions and action items found in the meeting: ${focus.join('; ')}.` : ''),
+    });
+  }
+
+  /**
+   * Minutes for the whole meeting. `windows` holds work already done in the background; it is
+   * extended in place for anything not yet covered (so a failure part-way keeps finished windows),
+   * then everything is merged.
+   */
+  async minutes(segments: Segment[], onStage: (msg: string) => void, windows: MinutesWindow[] = []): Promise<Minutes> {
+    if (!segments.length) throw new Error('Nothing to summarize yet.');
+    return modelGate.urgent(async () => {
+      const done = windows.at(-1)?.to ?? 0;
+      const todo = planWindows(segments, done, { maxChars: WINDOW_CHARS, final: true });
+      for (const [i, range] of todo.entries()) {
+        onStage(todo.length > 1 || done > 0 ? `Reading part ${i + 1} of ${todo.length}…` : 'Reading the transcript…');
+        windows.push(await this.processWindow(segments, range));
       }
-    }
-    return { generatedAt: Date.now(), summary, ...mergeExtractions(parts) };
+      const merged = mergeExtractions(windows);
+      const summary = await this.#mergeSummaries(windows.map((w) => w.summary), onStage, merged);
+      const partial = windows.some((w) => !w.extracted)
+        ? 'Decisions and action items need the Prompt API, which is unavailable on this device.' : undefined;
+      return { generatedAt: Date.now(), summary, ...merged, ...(partial ? { partial } : {}) };
+    });
   }
 }
