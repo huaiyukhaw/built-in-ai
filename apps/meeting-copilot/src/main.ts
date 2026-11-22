@@ -1,19 +1,21 @@
-import './styles.css';
+import '@fontsource-variable/google-sans-flex/wght.css';
+import './styles/icons.css';
+import './styles/tokens.css';
+import './styles/components.css';
+import './styles/app.css';
 import { registerSW } from 'virtual:pwa-register';
 import { getMeeting, saveMeeting } from './lib/db';
 import { newMeeting } from './lib/model';
+import { getLangPrefs, setLangPrefs } from './lib/prefs';
 import { transition } from './ui/dom';
 import { renderHistory } from './ui/history';
 import { renderMeeting } from './ui/meeting';
+import './ui/shell';
 
 registerSW({ immediate: true });
 
 const app = document.getElementById('app')!;
 let cleanup: (() => Promise<void>) | undefined;
-
-const PREFS = 'meeting-copilot:prefs';
-const prefs = (): { spokenLocale: string; captionLang: string } =>
-  ({ spokenLocale: 'en-US', captionLang: 'zh', ...JSON.parse(localStorage.getItem(PREFS) ?? '{}') });
 
 async function route() {
   await cleanup?.();
@@ -26,7 +28,7 @@ async function route() {
   }
   const meeting = await getMeeting(match[1]);
   if (!meeting) { go('#/'); return; }
-  localStorage.setItem(PREFS, JSON.stringify({ spokenLocale: meeting.spokenLocale, captionLang: meeting.captionLang }));
+  setLangPrefs({ spokenLocale: meeting.spokenLocale, captionLang: meeting.captionLang });
   transition(() => { cleanup = renderMeeting(app, meeting, () => go('#/')); }, '#meeting-heading');
 }
 
@@ -35,7 +37,7 @@ function go(hash: string) {
 }
 
 async function startNew() {
-  const p = prefs();
+  const p = getLangPrefs();
   const m = newMeeting(p.spokenLocale, p.captionLang);
   await saveMeeting(m);
   go(`#/m/${m.id}`);
@@ -43,41 +45,3 @@ async function startNew() {
 
 addEventListener('hashchange', () => void route());
 void route();
-
-// ------------------------------------------------------------ install button
-// Prefer navigator.install(); fall back to a captured beforeinstallprompt. Hidden when neither exists.
-const installBtn = document.getElementById('install') as HTMLButtonElement;
-const installStatus = document.getElementById('install-status')!;
-const supportsWebInstall = typeof (Navigator.prototype as { install?: unknown }).install === 'function';
-interface BeforeInstallPromptEvent extends Event { prompt(): Promise<void>; userChoice: Promise<{ outcome: string }> }
-let deferred: BeforeInstallPromptEvent | undefined;
-
-if (supportsWebInstall && !matchMedia('(display-mode: standalone)').matches) installBtn.hidden = false;
-addEventListener('beforeinstallprompt', (e) => {
-  e.preventDefault();
-  deferred = e as BeforeInstallPromptEvent;
-  if (!supportsWebInstall) installBtn.hidden = false;
-});
-
-installBtn.addEventListener('click', async () => {
-  if (installBtn.getAttribute('aria-disabled') === 'true') return;
-  installBtn.setAttribute('aria-disabled', 'true');
-  try {
-    if (supportsWebInstall) {
-      await (navigator as Navigator & { install(): Promise<void> }).install();
-      installStatus.textContent = 'The app was installed or opened.';
-      installBtn.hidden = true;
-    } else if (deferred) {
-      const prompt = deferred;
-      deferred = undefined;
-      await prompt.prompt();
-      const { outcome } = await prompt.userChoice;
-      installStatus.textContent = outcome === 'accepted' ? 'The app was installed.' : 'Installation canceled.';
-      if (!deferred) installBtn.hidden = true;
-    }
-  } catch (err) {
-    installStatus.textContent = (err as Error).name === 'AbortError' ? 'Installation was canceled.' : 'Installation could not start.';
-  } finally {
-    installBtn.removeAttribute('aria-disabled');
-  }
-});

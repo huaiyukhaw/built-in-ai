@@ -22,7 +22,11 @@ export default defineConfig({
           { src: 'icon.svg', sizes: 'any', type: 'image/svg+xml', purpose: 'maskable' },
         ],
       },
-      workbox: { globPatterns: ['**/*.{js,css,html,svg,webmanifest}'] },
+      workbox: {
+        globPatterns: ['**/*.{js,css,html,svg,webmanifest}'],
+        // Font subsets load per unicode-range; cache each one the first time it's used.
+        runtimeCaching: [{ urlPattern: /\.woff2$/, handler: 'CacheFirst', options: { cacheName: 'fonts', expiration: { maxEntries: 30 } } }],
+      },
     }),
   ],
   test: { environment: 'node' },

@@ -1,0 +1,327 @@
+/* Material 3-style components built on native elements. */
+
+*, *::before, *::after { box-sizing: border-box; }
+/* Author display rules (buttons, flex rows) would otherwise override the UA's [hidden] style. */
+[hidden] { display: none !important; }
+
+html { background: var(--surface); }
+body {
+  margin: 0;
+  font: var(--body-l);
+  color: var(--on-surface);
+  background: var(--surface);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+h1, h2, h3 { margin: 0; text-wrap: balance; }
+p { margin: 0; text-wrap: pretty; }
+a { color: var(--primary); text-underline-offset: 0.15em; }
+::selection { background: var(--primary-container); color: var(--on-primary-container); }
+
+.visually-hidden {
+  position: absolute; inline-size: 1px; block-size: 1px; overflow: hidden;
+  clip-path: inset(50%); white-space: nowrap;
+}
+.muted { color: var(--on-surface-variant); }
+
+:where(a, button, input, select, textarea, summary, [tabindex]):focus-visible {
+  outline: 2px solid var(--primary);
+  outline-offset: 2px;
+}
+/* Headings receive focus programmatically after navigation (for screen readers); no ring needed. */
+[tabindex='-1']:focus { outline: none; }
+
+/* ---------------------------------------------------------------- icons
+   Material Symbols as mask data URIs (icons.css). Icons follow currentColor and can be
+   swapped from CSS by state, e.g. [aria-pressed="true"] .icon { --icon: var(--icon-mic-fill) }. */
+.icon {
+  display: inline-block;
+  inline-size: var(--icon-size, 1.5rem);
+  block-size: var(--icon-size, 1.5rem);
+  flex: none;
+  background-color: currentColor;
+  mask: var(--icon) no-repeat center / contain;
+  pointer-events: none;
+  forced-color-adjust: none;
+  /* In inline contexts, centre on the text instead of sitting on its baseline. */
+  vertical-align: middle;
+}
+/* A wrapper around an icon inside a control (e.g. the chip's chevron) must not create
+   a baseline-aligned line box, or the icon rides high; make it a centred flex item. */
+:where(button, .btn, .tag, .chip, .speaker, label) > span:has(> .icon:only-child) {
+  display: inline-flex;
+  align-items: center;
+}
+
+/* ---------------------------------------------------------------- buttons
+   State layers: an overlay in the content colour at 8% (hover) / 12% (press). */
+button, .btn {
+  --bg: transparent;
+  --fg: var(--primary);
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  min-block-size: 2.5rem;
+  padding: 0.5rem 1.5rem;
+  border: 0;
+  border-radius: var(--r-full);
+  background: var(--bg);
+  color: var(--fg);
+  font: var(--label-l);
+  letter-spacing: 0.006em;
+  text-decoration: none;
+  cursor: pointer;
+  user-select: none;
+  -webkit-tap-highlight-color: transparent;
+  transition: background-color var(--dur-s) var(--ease-std), box-shadow var(--dur-s) var(--ease-std);
+  --icon-size: 1.125rem;
+}
+:where(button, .btn)::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  border-radius: inherit;
+  background: currentColor;
+  opacity: 0;
+  transition: opacity var(--dur-s) var(--ease-std);
+}
+:where(button, .btn):hover::after { opacity: 0.08; }
+:where(button, .btn):active::after { opacity: 0.12; }
+/* Zero specificity (the :has() argument would otherwise count), so icon-only controls
+   like .ctl and .icon-btn keep their own padding and the icon stays centred. */
+:where(button, .btn):where(:has(> .icon:first-child:not(:only-child))) { padding-inline-start: 1rem; }
+button:disabled, .btn[aria-disabled='true'] {
+  cursor: not-allowed;
+  color: color-mix(in oklab, var(--on-surface) 38%, transparent);
+  background: color-mix(in oklab, var(--on-surface) var(--disabled-bg, 0%), transparent);
+}
+button:disabled::after { opacity: 0; }
+
+.btn-filled { --bg: var(--primary); --fg: var(--on-primary); --disabled-bg: 12%; }
+.btn-filled:hover { box-shadow: 0 1px 2px rgb(0 0 0 / 0.3), 0 1px 3px 1px rgb(0 0 0 / 0.15); }
+.btn-tonal { --bg: var(--secondary-container); --fg: var(--on-secondary-container); --disabled-bg: 12%; }
+.btn-outlined { --fg: var(--primary); border: 1px solid var(--outline); }
+.btn-text { --fg: var(--primary); padding-inline: 0.75rem; }
+.btn-text:where(:has(> .icon:first-child:not(:only-child))) { padding-inline: 0.75rem 1rem; }
+.btn-danger { --bg: var(--error); --fg: var(--on-error); }
+
+/* Icon buttons (40px, 48px touch target via padding box) */
+.icon-btn {
+  --fg: var(--on-surface-variant);
+  inline-size: 2.5rem;
+  min-block-size: 2.5rem;
+  padding: 0;
+  --icon-size: 1.5rem;
+}
+.icon-btn.tonal { --bg: var(--secondary-container); --fg: var(--on-secondary-container); }
+
+/* ---------------------------------------------------------------- chips */
+.chip {
+  --bg: transparent;
+  --fg: var(--on-surface-variant);
+  min-block-size: 2rem;
+  padding: 0.25rem 1rem;
+  border: 1px solid var(--outline-variant);
+  border-radius: var(--r-s);
+  font: var(--label-l);
+  --icon-size: 1.125rem;
+}
+.chip:where(:has(> .icon:first-child)) { padding-inline-start: 0.5rem; }
+.chip.suggestion { --fg: var(--on-surface); }
+.chip.suggestion .icon { color: var(--primary); }
+.chip[aria-pressed='true'] { --bg: var(--secondary-container); --fg: var(--on-secondary-container); border-color: transparent; }
+
+/* Non-interactive status chips */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.25rem;
+  padding: 0.125rem 0.625rem;
+  border-radius: var(--r-s);
+  font: var(--label-m);
+  background: var(--surface-container-high);
+  color: var(--on-surface-variant);
+  --icon-size: 0.95rem;
+  white-space: nowrap;
+}
+.tag.ok { background: var(--tertiary-container); color: var(--on-tertiary-container); }
+.tag.warn { background: var(--warning-container); color: var(--on-warning-container); }
+.tag.bad { background: var(--error-container); color: var(--on-error-container); }
+
+/* ---------------------------------------------------------------- fields */
+input, select, textarea { font: inherit; color: inherit; }
+.field {
+  inline-size: 100%;
+  min-block-size: 3.5rem;
+  padding: 0.75rem 1rem;
+  border: 1px solid var(--outline);
+  border-radius: var(--r-s);
+  background: transparent;
+  font: var(--body-l);
+  transition: border-color var(--dur-s);
+}
+.field:hover { border-color: var(--on-surface); }
+.field:focus-visible { outline: 2px solid var(--primary); outline-offset: -2px; border-color: transparent; }
+select.field { appearance: none; padding-inline-end: 2.75rem; cursor: pointer; background: transparent; }
+select.field option { background: var(--surface-container-high); color: var(--on-surface); }
+/* Masked chevron overlay, so it follows the text colour in both themes. */
+.select-wrap { position: relative; display: block; }
+.select-wrap > .icon { position: absolute; inset-inline-end: 0.875rem; inset-block-start: 50%; translate: 0 -50%; color: var(--on-surface-variant); }
+.field-label { display: block; font: var(--body-m); color: var(--on-surface-variant); margin-block-end: 0.375rem; }
+
+/* Pill search / prompt bar (Gmail search, Gemini prompt) */
+.pill-field {
+  display: flex;
+  align-items: center;
+  gap: 0.25rem;
+  min-block-size: 3rem;
+  padding-inline: 1rem 0.375rem;
+  border-radius: var(--r-full);
+  background: var(--surface-container-high);
+  color: var(--on-surface-variant);
+  transition: background-color var(--dur-s), box-shadow var(--dur-s);
+}
+.pill-field:focus-within { background: var(--surface-container-lowest); box-shadow: var(--elev-2); }
+.pill-field input {
+  flex: 1;
+  min-inline-size: 0;
+  border: 0;
+  background: transparent;
+  font: var(--body-l);
+  color: var(--on-surface);
+  padding-block: 0.75rem;
+}
+.pill-field input:focus-visible { outline: none; }
+.pill-field input::placeholder { color: var(--on-surface-variant); }
+
+/* ---------------------------------------------------------------- segmented button (radio group) */
+.segmented {
+  display: inline-flex;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-inline-size: 0;
+}
+.segmented legend { font: var(--title-s); margin-block-end: 0.5rem; padding: 0; }
+.segmented .segs { display: flex; }
+.segmented label {
+  position: relative;
+  isolation: isolate;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-block-size: 2.5rem;
+  padding: 0.5rem 1rem;
+  border: 1px solid var(--outline);
+  margin-inline-start: -1px;
+  font: var(--label-l);
+  color: var(--on-surface);
+  cursor: pointer;
+  --icon-size: 1.125rem;
+}
+.segmented label:first-child { border-radius: var(--r-full) 0 0 var(--r-full); margin-inline-start: 0; }
+.segmented label:last-child { border-radius: 0 var(--r-full) var(--r-full) 0; }
+.segmented label::after { content: ''; position: absolute; inset: 0; z-index: -1; border-radius: inherit; background: currentColor; opacity: 0; transition: opacity var(--dur-s); }
+.segmented label:hover::after { opacity: 0.08; }
+.segmented input { position: absolute; opacity: 0; pointer-events: none; }
+.segmented label:has(input:checked) { background: var(--secondary-container); color: var(--on-secondary-container); }
+.segmented label:has(input:checked) .icon { --icon: var(--icon-check) !important; }
+.segmented label:has(input:focus-visible) { outline: 2px solid var(--primary); outline-offset: 2px; z-index: 1; }
+.segmented small { color: var(--on-surface-variant); font: var(--body-s); }
+
+/* ---------------------------------------------------------------- tabs (primary tabs) */
+.tabs { display: flex; border-block-end: 1px solid var(--outline-variant); }
+.tabs [role='tab'] {
+  --fg: var(--on-surface-variant);
+  flex: 1;
+  border-radius: 0;
+  min-block-size: 3rem;
+  padding-inline: 1rem;
+  font: var(--title-s);
+  --icon-size: 1.25rem;
+}
+.tabs [role='tab'][aria-selected='true'] { --fg: var(--primary); }
+.tabs [role='tab'][aria-selected='true']::before {
+  content: '';
+  position: absolute;
+  inset-block-end: 0;
+  inset-inline: 30%;
+  block-size: 3px;
+  border-radius: 3px 3px 0 0;
+  background: var(--primary);
+}
+
+/* ---------------------------------------------------------------- dialog */
+dialog {
+  border: 0;
+  padding: 1.5rem;
+  border-radius: var(--r-xl);
+  background: var(--surface-container-high);
+  color: var(--on-surface);
+  inline-size: min(36rem, calc(100vw - 2rem));
+  max-block-size: calc(100dvh - 2rem);
+}
+dialog:modal { overscroll-behavior: contain; }
+dialog::backdrop { background: rgb(0 0 0 / 0.32); overflow: hidden; overscroll-behavior: contain; }
+dialog h2 { font: var(--headline-s); margin-block-end: 1rem; }
+.dialog-actions { display: flex; justify-content: flex-end; gap: 0.5rem; margin-block-start: 1.5rem; }
+@media (prefers-reduced-motion: no-preference) {
+  dialog[open] { animation: dialog-in var(--dur-m) var(--ease-emph); }
+  @keyframes dialog-in { from { opacity: 0; scale: 0.96; translate: 0 8px; } }
+}
+
+/* ---------------------------------------------------------------- banner */
+.banner {
+  display: flex;
+  gap: 1rem;
+  align-items: start;
+  padding: 1rem 1.25rem;
+  border-radius: var(--r-l);
+  background: var(--warning-container);
+  color: var(--on-warning-container);
+  font: var(--body-m);
+}
+.banner.error { background: var(--error-container); color: var(--on-error-container); }
+.banner > .icon { margin-block-start: 0.125rem; }
+.banner strong { font: var(--title-s); display: block; margin-block-end: 0.125rem; }
+.banner ul { margin: 0.25rem 0 0; padding-inline-start: 1.1rem; }
+
+/* ---------------------------------------------------------------- snackbar */
+.snackbar {
+  position: fixed;
+  z-index: 10;
+  inset-inline: 0;
+  inset-block-end: 7rem;
+  margin-inline: auto;
+  inline-size: fit-content;
+  max-inline-size: min(36rem, calc(100vw - 2rem));
+  padding: 0.875rem 1rem;
+  border-radius: var(--r-s);
+  background: var(--inverse-surface);
+  color: var(--inverse-on-surface);
+  font: var(--body-m);
+  box-shadow: var(--elev-3);
+  opacity: 0;
+  translate: 0 0.5rem;
+  pointer-events: none;
+  transition: opacity var(--dur-s) var(--ease-std), translate var(--dur-m) var(--ease-emph);
+}
+.snackbar.show { opacity: 1; translate: 0 0; }
+.snackbar.error { background: var(--error-container); color: var(--on-error-container); }
+
+/* ---------------------------------------------------------------- progress (determinate + indeterminate) */
+progress { inline-size: 100%; accent-color: var(--primary); block-size: 0.25rem; }
+
+/* ---------------------------------------------------------------- table */
+.table { inline-size: 100%; border-collapse: collapse; font: var(--body-m); }
+.table th { font: var(--label-m); color: var(--on-surface-variant); text-align: start; padding: 0.5rem 0.75rem; }
+.table td { padding: 0.625rem 0.75rem; border-block-start: 1px solid var(--outline-variant); vertical-align: top; }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { transition-duration: 0s !important; animation-duration: 0s !important; }
+  ::view-transition-group(*), ::view-transition-old(*), ::view-transition-new(*) { animation: none !important; }
+}

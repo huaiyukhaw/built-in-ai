@@ -3,17 +3,21 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="color-scheme" content="light dark">
+  <!-- Apply a saved Light/Dark override before first paint (FOUC prevention only). -->
+  <script>
+    try { document.querySelector('meta[name="color-scheme"]').content = localStorage.getItem('color-scheme') ?? 'light dark'; } catch {}
+  </script>
   <meta name="description" content="On-device live captions, translation, Q&amp;A and minutes for meetings.">
-  <meta name="theme-color" content="#1a73e8">
+  <meta name="theme-color" content="#f8fafd" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#131314" media="(prefers-color-scheme: dark)">
   <link rel="icon" href="/icon.svg" type="image/svg+xml">
   <title>Meeting Copilot</title>
 </head>
 <body>
-  <div class="app-bar">
-    <button id="install" type="button" class="secondary small" hidden>Install app</button>
-    <p id="install-status" class="visually-hidden" role="status"></p>
-  </div>
+  <div id="shell"></div>
   <main id="app"></main>
+  <div id="snackbar" class="snackbar" role="status" aria-live="polite"></div>
   <script type="module" src="/src/main.ts"></script>
 </body>
 </html>

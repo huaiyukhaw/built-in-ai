@@ -1,0 +1,92 @@
+/* Design tokens. See DESIGN.md. Colour roles follow the Material 3 baseline used in Google Workspace. */
+
+:root {
+  /* Follow the OS by default; Settings → Appearance rewrites the <meta>, which this maps back to CSS. */
+  color-scheme: light dark;
+  &:has(> head > meta[name="color-scheme"][content="dark"]) { color-scheme: dark; }
+  &:has(> head > meta[name="color-scheme"][content="light"]) { color-scheme: light; }
+
+  /* ---- colour roles ---- */
+  --surface: light-dark(#f8fafd, #131314);
+  --surface-dim: light-dark(#d9dee5, #0e0e0f);
+  --surface-container-lowest: light-dark(#ffffff, #0e0e0f);
+  --surface-container-low: light-dark(#f0f4f9, #1b1b1c);
+  --surface-container: light-dark(#e9eef6, #1e1f20);
+  --surface-container-high: light-dark(#dde3ea, #282a2c);
+  --surface-container-highest: light-dark(#d3dbe5, #333537);
+  --on-surface: light-dark(#1f1f1f, #e3e3e3);
+  --on-surface-variant: light-dark(#444746, #c4c7c5);
+  --outline: light-dark(#747775, #8e918f);
+  --outline-variant: light-dark(#c4c7c5, #444746);
+  --inverse-surface: light-dark(#303030, #e3e3e3);
+  --inverse-on-surface: light-dark(#f2f2f2, #303030);
+  --inverse-primary: light-dark(#a8c7fa, #0b57d0);
+
+  --primary: light-dark(#0b57d0, #a8c7fa);
+  --on-primary: light-dark(#ffffff, #062e6f);
+  --primary-container: light-dark(#d3e3fd, #0842a0);
+  --on-primary-container: light-dark(#041e49, #d3e3fd);
+  --secondary-container: light-dark(#c2e7ff, #004a77);
+  --on-secondary-container: light-dark(#001d35, #c2e7ff);
+  --tertiary: light-dark(#146c2e, #6dd58c);
+  --tertiary-container: light-dark(#c4eed0, #0f5223);
+  --on-tertiary-container: light-dark(#072711, #c4eed0);
+  --error: light-dark(#b3261e, #f2b8b5);
+  --on-error: light-dark(#ffffff, #601410);
+  --error-container: light-dark(#f9dedc, #8c1d18);
+  --on-error-container: light-dark(#410e0b, #f9dedc);
+  --warning-container: light-dark(#ffdf99, #5c4300);
+  --on-warning-container: light-dark(#261a00, #ffdf99);
+
+  /* Speaker identity (never colour-only: chips also carry a label and icon) */
+  --room: var(--on-secondary-container);
+  --room-container: var(--secondary-container);
+  --remote: light-dark(#7438d2, #d0bcff);
+  --remote-container: light-dark(#eaddff, #4a2a8a);
+  --on-remote-container: light-dark(#25005a, #eaddff);
+  --recording: light-dark(#d93025, #f28b82);
+
+  --stage: light-dark(#ffffff, #0e0e0f);
+
+  /* ---- type ---- */
+  --font: 'Google Sans Flex Variable', 'Google Sans', Roboto, 'Segoe UI', system-ui, sans-serif;
+  --display-s: 400 2.25rem/1.22 var(--font);
+  --headline-s: 400 1.5rem/1.33 var(--font);
+  --title-l: 400 1.375rem/1.27 var(--font);
+  --title-m: 500 1rem/1.5 var(--font);
+  --title-s: 500 0.875rem/1.43 var(--font);
+  --body-l: 400 1rem/1.5 var(--font);
+  --body-m: 400 0.875rem/1.43 var(--font);
+  --body-s: 400 0.75rem/1.33 var(--font);
+  --label-l: 500 0.875rem/1.43 var(--font);
+  --label-m: 500 0.75rem/1.33 var(--font);
+  --caption: 400 clamp(1.25rem, 1rem + 0.8vw, 1.75rem)/1.4 var(--font);
+
+  /* ---- shape ---- */
+  --r-full: 999px;
+  --r-xl: 28px;
+  --r-l: 16px;
+  --r-m: 12px;
+  --r-s: 8px;
+
+  /* ---- elevation (only for floating chrome) ---- */
+  --elev-2: 0 1px 2px rgb(0 0 0 / 0.3), 0 2px 6px 2px rgb(0 0 0 / 0.15);
+  --elev-3: 0 1px 3px rgb(0 0 0 / 0.3), 0 4px 8px 3px rgb(0 0 0 / 0.15);
+
+  /* ---- motion ---- */
+  --ease-emph: cubic-bezier(0.05, 0.7, 0.1, 1);
+  --ease-std: cubic-bezier(0.2, 0, 0, 1);
+  --dur-s: 150ms;
+  --dur-m: 300ms;
+
+  accent-color: var(--primary);
+  scrollbar-color: var(--outline-variant) transparent;
+}
+
+@media (forced-colors: active) {
+  :root {
+    --primary: LinkText;
+    --outline: CanvasText;
+    --outline-variant: GrayText;
+  }
+}

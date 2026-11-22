@@ -2,6 +2,8 @@
 
 An installable web app (PWA) for meetings. It provides live captions in your language, lets you ask questions about the meeting, catches you up on what you missed, and writes minutes. The AI and the saved history stay in the browser, using Chrome's built-in AI (Gemini Nano). Mic speech is the one exception: see Privacy.
 
+Design direction (Material 3 / Google Workspace feel, theme switching): see [DESIGN.md](DESIGN.md). Next features: [ROADMAP.md](ROADMAP.md).
+
 ## Run
 
 ```bash
