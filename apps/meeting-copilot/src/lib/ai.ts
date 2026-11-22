@@ -77,3 +77,18 @@ export async function streamText(stream: AsyncIterable<string>, onText: (full: s
   }
   return full;
 }
+
+/**
+ * Call create() synchronously, without an availability() check first. A model download needs
+ * user activation at the moment create() is called; awaiting availability() first can let
+ * something else in the same click (getDisplayMedia, for one) use the activation up.
+ */
+export function createInGesture<T>(name: ApiName, options: object, onProgress?: Progress): Promise<T> {
+  if (!hasApi(name)) return Promise.reject(new AiUnavailableError(name, 'no-api'));
+  return api(name).create({
+    ...options,
+    monitor(m: AICreateMonitor) {
+      m.addEventListener('downloadprogress', (e) => onProgress?.(name, e.loaded));
+    },
+  }).then((instance) => { onProgress?.(name, 1); return instance as T; });
+}

@@ -7,6 +7,7 @@ import { CAPTION_LANGS, langOf, SPOKEN_LOCALES, type Meeting, type Segment, type
 import { clock } from '../lib/transcript';
 import { TranslatorPool } from '../lib/translate';
 import { hasMic, hasTabCapture, prepareTabTranscriber, startMic, startTabAudio, tabLangSupported, type AudioSource } from '../audio/sources';
+import { chooseRemoteKind } from './remote-picker';
 import { flash, h } from './dom';
 import { hasPiP, popOut } from './pip';
 import { icon, renderAppBar, snackbar } from './shell';
@@ -53,7 +54,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   const stageEmpty = h('div', { class: 'stage-empty' },
     icon('mic'),
     h('strong', {}, 'Captions appear here'),
-    h('p', {}, 'Turn on the room mic, or present a Teams / Zoom / Meet tab with its audio to caption remote speakers.'));
+    h('p', {}, 'Turn on the room mic, and share the Teams, Zoom or Meet tab, or the desktop app’s sound, to caption remote speakers.'));
   const jump = h('button', { class: 'btn-tonal jump', hidden: true }, icon('jump-down'), 'Jump to live');
   const stage = h('section', { class: 'stage', 'aria-labelledby': 'cap-h' },
     h('div', { class: 'stage-head' }, h('h2', { id: 'cap-h' }, 'Live captions'), h('span', { class: 'live' }, 'Live')),
@@ -125,7 +126,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   };
 
   const micBtn = h('button', { class: 'ctl', id: 'mic-btn', 'aria-pressed': 'false', 'aria-label': 'Room microphone', title: 'Room microphone', disabled: !hasMic() }, icon('mic'));
-  const tabBtn = h('button', { class: 'ctl', id: 'tab-btn', 'aria-pressed': 'false', 'aria-label': 'Caption a meeting tab', title: 'Caption a meeting tab (shares its audio)', disabled: !hasTabCapture() }, icon('present'));
+  const tabBtn = h('button', { class: 'ctl', id: 'tab-btn', 'aria-pressed': 'false', 'aria-label': 'Caption remote speakers', title: 'Caption remote speakers (meeting tab or desktop app)', disabled: !hasTabCapture() }, icon('present'));
   const floatBtn = h('button', { class: 'ctl', 'aria-label': 'Float captions over other windows', title: 'Float captions', disabled: !hasPiP() }, icon('pip'));
   const privacy = h('span', { class: 'tag ok privacy', hidden: true });
   const endBtn = h('button', { class: 'btn-end', title: 'Stop listening and write the minutes' }, icon('call-end'), h('span', { class: 'label' }, 'End'));
@@ -240,18 +241,22 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   tabBtn.addEventListener('click', async () => {
     if (sources.has('tab')) return stopSource('tab');
     if (!tabLangSupported(meeting.spokenLocale)) {
-      return fail(new Error('Tab captions support English, Spanish and Japanese meetings. Use the room mic for other languages.'));
+      return fail(new Error('Remote captions support English, Spanish and Japanese meetings. Use the room mic for other languages.'));
     }
+    const kind = await chooseRemoteKind();
+    if (!kind) return;
     try {
       void translator.prepare(langOf(meeting.spokenLocale), meeting.captionLang);
       void assistant.warmUp();
       const transcriber = prepareTabTranscriber(meeting.spokenLocale, onProgress);
       transcriber.catch(() => {}); // surfaced through startTabAudio below
-      const src = await startTabAudio(transcriber, sourceEvents('tab'));
+      const src = await startTabAudio(transcriber, sourceEvents('tab'), kind);
       sources.set('tab', src);
       tabBtn.setAttribute('aria-pressed', 'true');
       refreshLive();
-      snackbar('Captioning the shared tab — remote speakers appear as “Remote”');
+      snackbar(src.surface === 'monitor'
+        ? 'Captioning system audio. Remote speakers appear as “Remote”'
+        : 'Captioning the shared tab. Remote speakers appear as “Remote”');
     } catch (err) {
       if (err instanceof DOMException && err.name === 'NotAllowedError') snackbar('Sharing was cancelled');
       else fail(err);
@@ -260,9 +265,9 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
 
   function refreshTabHint() {
     tabHint.textContent = tabLangSupported(meeting.spokenLocale)
-      ? 'Tip: when presenting a meeting tab, turn on “Also share tab audio”. Use headphones if the room mic is on too, to avoid duplicate lines.'
-      : 'Tab captions are available for English, Spanish and Japanese meetings; use the room mic for other languages.';
-    tabBtn.title = tabLangSupported(meeting.spokenLocale) ? 'Caption a meeting tab (shares its audio)' : 'Tab captions: English, Spanish or Japanese meetings only';
+      ? 'Remote speakers: share the meeting tab with its audio, or for the Teams or Zoom app, your entire screen with system audio. Use headphones if the room mic is on too, to avoid duplicate lines.'
+      : 'Remote captions are available for English, Spanish and Japanese meetings; use the room mic for other languages.';
+    tabBtn.title = tabLangSupported(meeting.spokenLocale) ? 'Caption remote speakers (meeting tab or desktop app)' : 'Remote captions: English, Spanish or Japanese meetings only';
   }
 
   spoken.addEventListener('change', () => { meeting.spokenLocale = spoken.value; saver.schedule(meeting); updateLangChip(); refreshTabHint(); renderAllLines(); });
@@ -417,7 +422,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     const bad = (a: string) => a === 'no-api' || a === 'unavailable' || a === 'timeout';
     const why = (a: string) => a === 'no-api' ? 'isn’t available in this browser' : a === 'timeout' ? 'isn’t responding' : 'is unavailable on this device';
     const items: string[] = [];
-    if (bad(lm)) items.push(`Prompt API ${why(lm)}: Q&A, action items and tab captions are off.`);
+    if (bad(lm)) items.push(`Prompt API ${why(lm)}: Q&A, action items and remote captions are off.`);
     if (bad(sum)) items.push(`Summarizer ${why(sum)}: catch-up and minutes summaries are off.`);
     if (bad(tr)) items.push(`Translator ${why(tr)}: captions stay in the spoken language.`);
     if (!items.length) return;
@@ -429,7 +434,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
         ? 'Open this page in desktop Chrome 148 or newer (not Edge or an embedded browser).'
         : 'Check Settings → On-device AI, or chrome://on-device-internals.')));
     banner.hidden = false;
-    if (bad(lm)) tabBtn.title = 'Tab captions need the Prompt API';
+    if (bad(lm)) tabBtn.title = 'Remote captions need the Prompt API';
   })();
 
   // ------------------------------------------------------------ demo mode (?demo): sample transcript, no mic needed

@@ -1,0 +1,22 @@
+{
+  "id": "no-actions",
+  "about": "A show-and-tell with no decisions or commitments. Every extracted decision or action item is a false positive.",
+  "lines": [
+    ["mic", "This is just a show-and-tell, no decisions needed today."],
+    ["mic", "Here's the new dashboard prototype. The chart on the left shows daily claims by state."],
+    ["tab", "Looks nice. The colours on the map are a bit hard to tell apart though."],
+    ["mic", "Yeah, that's a known thing with this palette."],
+    ["tab", "Out of curiosity, how many users are on the beta now?"],
+    ["mic", "About three hundred, mostly from the Penang branch."],
+    ["tab", "Cool. Penang was always the early adopter."],
+    ["mic", "Alright, that's all I wanted to show. See you next week."]
+  ],
+  "expect": {
+    "decisions": [],
+    "actionItems": [],
+    "openQuestions": [
+      { "keys": ["colour|color|palette|map"], "optional": true }
+    ],
+    "summary": ["dashboard|prototype", "beta|300|three hundred"]
+  }
+}

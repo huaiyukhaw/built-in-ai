@@ -1,0 +1,27 @@
+{
+  "id": "long-meeting",
+  "about": "About 400 lines: real items spread among filler chatter, so both the Summarizer and the extractor have to split the transcript. One commitment is repeated in a later part and should appear once.",
+  "filler": 400,
+  "lines": [
+    ["mic", "Weekly ops review. Lots to cover, so let's keep it moving."],
+    ["mic", "First, infrastructure. Hafiz will migrate the reporting database to the new server by the end of the month."],
+    ["tab", "Network team update: we decided to retire the old VPN on the first of June."],
+    ["mic", "Just to confirm, Hafiz, you're still doing the reporting database migration by end of month?"],
+    ["mic", "Yes, Hafiz here, still on track for the migration."],
+    ["tab", "Grace will renew the SSL certificates before they expire on the twentieth."],
+    ["mic", "Last thing, still open: do we still need the Saturday on-call rota?"]
+  ],
+  "expect": {
+    "decisions": [
+      { "keys": ["vpn", "june|1"] }
+    ],
+    "actionItems": [
+      { "keys": ["database|migrat|reporting"], "owner": "Hafiz", "due": "month" },
+      { "keys": ["ssl|certificate|cert"], "owner": "Grace", "due": "20|twentieth" }
+    ],
+    "openQuestions": [
+      { "keys": ["on call|rota|saturday"] }
+    ],
+    "summary": ["database|migration", "vpn"]
+  }
+}

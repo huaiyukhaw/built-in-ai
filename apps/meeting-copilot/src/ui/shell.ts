@@ -20,7 +20,9 @@ export function snackbar(message: string, { error = false, ms = 4000 } = {}) {
   el.textContent = message;
   el.classList.toggle('error', error);
   el.classList.add('show');
-  snackTimer = setTimeout(() => el.classList.remove('show'), error ? ms * 2 : ms);
+  // Long instructions stay up long enough to read (~15 characters a second).
+  const readable = Math.max(ms, message.length * 65);
+  snackTimer = setTimeout(() => el.classList.remove('show'), error ? readable * 2 : readable);
 }
 
 // ---------------------------------------------------------------- top app bar

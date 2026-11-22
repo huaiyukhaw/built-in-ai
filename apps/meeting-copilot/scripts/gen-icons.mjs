@@ -15,7 +15,7 @@ const ICONS = {
   'light-mode': 'light_mode', 'dark-mode': 'dark_mode', 'system-mode': 'contrast',   translate: 'translate', send: 'send', copy: 'content_copy', download: 'download', mail: 'mail', share: 'share',
   minutes: 'description', ask: 'forum', check: 'check', close: 'close', lock: 'lock', cloud: 'cloud',
   play: 'play_arrow', chevron: 'keyboard_arrow_down', install: 'install_desktop', 'jump-down': 'arrow_downward',
-  groups: 'groups', error: 'error', info: 'info',
+  groups: 'groups', error: 'error', info: 'info', tab: 'tab', desktop: 'desktop_windows',
 };
 
 const encode = (svg) => svg

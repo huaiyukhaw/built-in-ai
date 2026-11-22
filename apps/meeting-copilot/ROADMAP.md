@@ -37,13 +37,27 @@ Not yet verified by a human: the floating caption window, and real speech in a r
 - "Generate minutes" becomes a fast merge of the rolling results (summary of summaries, de-duplicated action items via `mergeExtractions`).
 - Store the rolling results on the `Meeting` so a reload doesn't lose them.
 - Pause background work while Q&A is running, so answers stay fast.
+- One Gemini Nano instance runs everything, so add a small job queue: live tab transcription first, then Q&A and catch-up, then background minutes. Otherwise rolling minutes will make tab captions lag more than they already do.
+- Success check: long-meeting eval recall up from 50%, and "Generate minutes" under 10 s at the end.
 
-### 3. Automated quality check for minutes · size S–M
-**Evidence:** one change to the extraction instructions changed the output from 3 action items with no due dates to 4 with owners and due dates, and moved a conditional decision into the summary. Prompt changes need regression checks.
-**Plan:**
-- `test/evals/*.json`: 4–6 sample transcripts (plain meeting, remote speaker introductions, conditional decisions, no action items, long meeting, non-English names) with the expected decisions and action items.
-- A runner page that executes each sample through `Assistant.minutes()` in the e2e Chrome and scores recall of expected items, owner/due accuracy, and false positives (fuzzy match).
-- Results go to a JSON or Markdown table; compare against the last run before merging prompt changes.
+### 3. Automated quality check for minutes · ✅ done 2026-11-22
+Six samples in `test/evals/samples/`, scorer in `src/eval/score.ts`, runner at `/eval.html` (see README → Minutes quality eval). Baseline in `test/evals/results/baseline.json`, Chrome 157:
+
+| Sample | Time | Decisions | Actions | Owner | Due | Questions | Extra |
+|---|---|---|---|---|---|---|---|
+| portal-golive | 80 s | 2/2 | 4/4 | 4/4 | 4/4 | 1/1 | 0 |
+| remote-intros | 52 s | 1/1 | 4/4 | 3/3 | 4/4 | 1/1 | 0 |
+| conditional-rejected | 57 s | 3/3 | 2/2 | 2/2 | 2/2 | – | 2 |
+| no-actions | 26 s | – | – | – | – | – | 1 |
+| malaysian-names | 40 s | 1/1 | 4/4 | 4/4 | 4/4 | 1/1 | 0 |
+| long-meeting (~400 lines, split in 2) | 239 s | **0/1** | **1/2** | 1/1 | 1/1 | 1/1 | 1 |
+
+**What it showed:**
+- **Short meetings are solid.** Remote introductions, Malaysian names and rejected proposals were all handled correctly, with no traps hit.
+- **Long meetings are the weak spot.** The VPN decision was lost and Grace's SSL task disappeared or was filed as a decision, both in one pass (~230 lines, which fits the 9,216-token context) and when split. This is quality, not only speed, so it strengthens the case for #2: small rolling windows give the model less to search through.
+- **Speaker label as owner.** "Remote: Send the request to renew the SMS contract" duplicated Mei Ling's item. The model used the source label instead of carrying the name forward. #4 (speaker names) would fix this; meanwhile, de-duplicate on task similarity, not exact text.
+- **Answered questions listed as open.** "How many users are on the beta?" was answered on the next line, yet came back as an open question in 2 of the 6 samples.
+- Both the Prompt API and the Summarizer report 9,216 tokens of input. Extraction splits at ~13.8k characters (about 230 short lines).
 
 ---
 
@@ -61,10 +75,12 @@ Lines are only "Room" or "Remote". The model already understood "this is Priya �
 - Time-box nudges: "10 min left · 2 items not covered".
 - Uncovered items go into the minutes as open questions.
 
-### 6. Teams / Zoom desktop apps · size S
-Only browser tabs are captured today. On Windows, `getDisplayMedia` sharing the **entire screen** with "Share system audio" should capture the desktop apps' audio as well.
-- Test with Teams and Zoom desktop; add a "Desktop app (system audio)" option with picker instructions.
-- Watch out: system audio includes notification sounds and our own speech-synthesis output.
+### 6. Teams / Zoom desktop apps · ✅ built 2026-11-22, needs a real-call check
+Clicking the remote-captions button now asks **"Where is your meeting?"**: in a browser tab, or in the Teams/Zoom app. Each choice explains what to pick in Chrome's share picker, opens the picker on the matching tab (`displaySurface` hint), and is remembered. The desktop-app choice uses an entire-screen share with system audio.
+- Verified with fake media in Chrome 157: a screen share (`displaySurface: monitor`) with audio is transcribed and translated like a tab.
+- A share with no audio now says what to fix, depending on what was picked. A single window → "share your entire screen instead"; a screen without "Share system audio" ticked → "turn it on"; a tab → "keep tab audio on".
+- **Bug fixed on the way:** the Translator was created only after two `availability()` checks, and by then the share picker had used up the click's user activation. A first-time translation download then failed, every caption said "Translation unavailable", and the failure was cached. Translators are now created straight away inside the click, and failures other than "unsupported pair" are retried on the next click.
+- **Still to check by hand:** a real Teams or Zoom desktop call with "Share system audio" ticked, including how notification sounds come through. Automation can't tick that checkbox in Chrome's picker.
 
 ---
 

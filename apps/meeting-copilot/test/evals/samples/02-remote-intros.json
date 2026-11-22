@@ -1,0 +1,32 @@
+{
+  "id": "remote-intros",
+  "about": "Remote speakers name themselves (\"this is Priya\", \"Daniel here\") and then commit to work; owners must come from those introductions.",
+  "lines": [
+    ["mic", "Morning all. Let's go round the remote folks first for updates on the mobile release."],
+    ["tab", "Hi, this is Priya from QA. Regression is done on Android, but iOS crashes when you open the camera on older iPhones."],
+    ["tab", "I will log the crash with steps and a video by tomorrow."],
+    ["mic", "Thanks Priya. Who on the iOS side can take it?"],
+    ["tab", "Hey, Daniel here. I can take the camera crash, I'll have a fix ready for testing by Thursday."],
+    ["mic", "Great. And design?"],
+    ["tab", "It's Aisha. The new onboarding screens are approved. I'll export the assets to the Figma handoff today."],
+    ["mic", "Okay. So we agree the release moves to next Monday to give Daniel time for the fix."],
+    ["tab", "Daniel again, one concern: do we need the App Store review expedited? Not sure who requests that."],
+    ["mic", "Let's leave that open for now. I will draft the release notes this week."]
+  ],
+  "expect": {
+    "decisions": [
+      { "keys": ["release", "monday"] },
+      { "keys": ["onboarding"], "optional": true }
+    ],
+    "actionItems": [
+      { "keys": ["log|report|steps|video"], "owner": "Priya", "due": "tomorrow" },
+      { "keys": ["fix"], "owner": "Daniel", "due": "thursday" },
+      { "keys": ["asset|export|handoff|figma"], "owner": "Aisha", "due": "today" },
+      { "keys": ["release notes|notes"], "due": "this week|week" }
+    ],
+    "openQuestions": [
+      { "keys": ["app store|expedit|review"] }
+    ],
+    "summary": ["crash|camera", "onboarding", "monday"]
+  }
+}

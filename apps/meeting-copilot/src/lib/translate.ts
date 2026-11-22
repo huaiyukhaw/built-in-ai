@@ -1,4 +1,4 @@
-import { availability, create, type Progress } from './ai';
+import { createInGesture, type Progress } from './ai';
 
 /**
  * Caches one Translator per language pair (creation is the slow part) and
@@ -10,17 +10,21 @@ export class TranslatorPool {
 
   constructor(private onProgress?: Progress) {}
 
-  /** Resolve (and if needed download) the translator. Call from a click so downloads have user activation. */
+  /**
+   * Resolve (and if needed download) the translator. Call from a click so downloads have user activation.
+   * An unsupported pair is remembered as null; any other failure (e.g. no user activation for a download)
+   * is forgotten, so the next click tries again.
+   */
   prepare(source: string, target: string): Promise<TranslatorSession | null> {
     if (source === target) return Promise.resolve(null);
     const key = `${source}>${target}`;
     if (!this.#pool.has(key)) {
-      this.#pool.set(key, (async () => {
-        const opts = { sourceLanguage: source, targetLanguage: target };
-        const a = await availability('Translator', opts);
-        if (a === 'no-api' || a === 'unavailable' || a === 'timeout') return null;
-        return create<TranslatorSession>('Translator', opts, this.onProgress);
-      })().catch(() => null));
+      const opts = { sourceLanguage: source, targetLanguage: target };
+      this.#pool.set(key, createInGesture<TranslatorSession>('Translator', opts, this.onProgress).catch((err: unknown) => {
+        const unsupported = err instanceof DOMException && err.name === 'NotSupportedError';
+        if (!unsupported) this.#pool.delete(key);
+        return null;
+      }));
     }
     return this.#pool.get(key)!;
   }

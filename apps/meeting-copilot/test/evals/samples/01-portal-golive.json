@@ -1,0 +1,35 @@
+{
+  "id": "portal-golive",
+  "about": "The demo meeting: action items with owners and due dates, one conditional decision, one open question.",
+  "lines": [
+    ["mic", "Okay, let us start. Main item is the customer portal go-live."],
+    ["tab", "Backend is mostly done, but the FPX payment gateway still fails in UAT because the bank certificate expired."],
+    ["mic", "The bank says they will send the new certificate by Wednesday. Wei Ming, can you chase them?"],
+    ["mic", "Sure, I will follow up with the bank today and again on Wednesday morning."],
+    ["tab", "If we do not have it by Wednesday, we push go-live from the third of February to the tenth."],
+    ["mic", "The accessibility audit found fourteen issues on the claims form, mostly contrast and missing labels. Priya will fix them by next Friday."],
+    ["mic", "Data migration is at eighty percent. The rest have duplicate IC numbers and need manual review."],
+    ["tab", "Ahmad needs two people from operations for three days. Sarah will ask the ops manager."],
+    ["mic", "Legal wants the old portal kept read-only for six months, so we agreed on six months."],
+    ["mic", "Open question: who signs off UAT on the client side? Nobody owns that yet."],
+    ["tab", "Sarah will update the steering committee on Friday. Thanks everyone."]
+  ],
+  "expect": {
+    "decisions": [
+      { "keys": ["go live|golive|launch", "tenth|10"] },
+      { "keys": ["read only|old portal|legacy", "six|6"] }
+    ],
+    "actionItems": [
+      { "keys": ["bank|certificate|cert"], "owner": "Wei Ming|Ming", "due": "wednesday|today" },
+      { "keys": ["accessibility|contrast|label|claims form|audit|issue"], "owner": "Priya", "due": "friday" },
+      { "keys": ["ops|operations|people"], "owner": "Sarah", "due": "" },
+      { "keys": ["steering"], "owner": "Sarah", "due": "friday" },
+      { "keys": ["send|certificate"], "owner": "bank", "optional": true },
+      { "keys": ["duplicate|manual review|migration"], "optional": true }
+    ],
+    "openQuestions": [
+      { "keys": ["uat", "sign"] }
+    ],
+    "summary": ["fpx|payment|gateway", "accessibility", "migration", "read only|six months|6 months"]
+  }
+}

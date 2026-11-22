@@ -54,3 +54,15 @@ export function getLangPrefs(): LangPrefs {
 export function setLangPrefs(p: LangPrefs) {
   try { localStorage.setItem(LANG_KEY, JSON.stringify(p)); } catch { /* ignore */ }
 }
+
+/** Where remote speakers are: a meeting in a browser tab, or a desktop app captured via system audio. */
+export type RemoteKind = 'tab' | 'screen';
+const REMOTE_KEY = 'meeting-copilot:remote-kind';
+
+export function getRemoteKind(): RemoteKind {
+  try { return localStorage.getItem(REMOTE_KEY) === 'screen' ? 'screen' : 'tab'; } catch { return 'tab'; }
+}
+
+export function setRemoteKind(k: RemoteKind) {
+  try { localStorage.setItem(REMOTE_KEY, k); } catch { /* ignore */ }
+}

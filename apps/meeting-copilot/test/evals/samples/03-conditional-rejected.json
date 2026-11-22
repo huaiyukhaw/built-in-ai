@@ -1,0 +1,31 @@
+{
+  "id": "conditional-rejected",
+  "about": "Conditional decisions, plus proposals that were rejected. Rejected ideas must not become action items.",
+  "lines": [
+    ["mic", "Two decisions today: the hosting move and the vendor for SMS."],
+    ["mic", "On hosting, we only move to the new cloud region if the load test passes at two thousand concurrent users."],
+    ["tab", "The load test is scheduled for the fourteenth. Ravi will run it."],
+    ["mic", "For SMS, someone suggested switching to the cheaper vendor, but we rejected that because their delivery rate in Sabah is poor."],
+    ["mic", "So we stay with the current SMS vendor for this year."],
+    ["tab", "What about the free trial they offered? Could we use it for internal alerts only?"],
+    ["mic", "No, let's not. Keep it simple, one vendor."],
+    ["mic", "Mei Ling, please ask finance to renew the SMS contract before it expires at the end of March."],
+    ["tab", "Will do, I'll send the request this week."],
+    ["mic", "One more: if the region move happens, we freeze deployments for that weekend."]
+  ],
+  "expect": {
+    "decisions": [
+      { "keys": ["region|cloud|hosting", "load|2000|two thousand"] },
+      { "keys": ["sms|vendor", "current|existing|stay|keep|remain|continue"] },
+      { "keys": ["freeze"] },
+      { "keys": ["cheaper|switch|trial"], "optional": true }
+    ],
+    "actionItems": [
+      { "keys": ["load"], "owner": "Ravi", "due": "14|fourteenth" },
+      { "keys": ["finance|renew|contract"], "owner": "Mei Ling|Ling", "due": "week|march" }
+    ],
+    "openQuestions": [],
+    "forbidActions": [["trial"], ["cheaper|switch"]],
+    "summary": ["load test|region|hosting", "sms|vendor"]
+  }
+}

@@ -1,0 +1,31 @@
+{
+  "id": "malaysian-names",
+  "about": "Malaysian names and honorifics (Encik, three-part Chinese names) as owners.",
+  "lines": [
+    ["mic", "Okay team, quick sync on the Johor branch rollout."],
+    ["tab", "Hi, Siti here. The training slides are ready, I will run the session for Johor staff on the twelfth."],
+    ["mic", "Thanks Siti. Encik Razak, can you confirm the laptops are imaged?"],
+    ["tab", "Yes, Razak speaking. Twenty laptops done, ten more by Tuesday."],
+    ["mic", "Muthu, the printer drivers were a problem last time."],
+    ["tab", "Muthu here. I'll test the drivers on the new image tomorrow and report back."],
+    ["mic", "Good. Lim Wei Jie, you're handling the go-live comms?"],
+    ["tab", "Yes. I'll send the announcement email to all Johor staff next Monday."],
+    ["mic", "We agreed go-live for Johor is the nineteenth, no change."],
+    ["mic", "Still open: do we need overtime approval for the weekend support?"]
+  ],
+  "expect": {
+    "decisions": [
+      { "keys": ["go live|golive|johor", "19|nineteenth"] }
+    ],
+    "actionItems": [
+      { "keys": ["training|session|slides"], "owner": "Siti", "due": "12|twelfth" },
+      { "keys": ["laptop|image"], "owner": "Razak", "due": "tuesday" },
+      { "keys": ["driver|printer"], "owner": "Muthu", "due": "tomorrow" },
+      { "keys": ["announcement|email|comms"], "owner": "Lim Wei Jie|Wei Jie|Lim", "due": "monday" }
+    ],
+    "openQuestions": [
+      { "keys": ["overtime"] }
+    ],
+    "summary": ["johor", "training|laptop"]
+  }
+}

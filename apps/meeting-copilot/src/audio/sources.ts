@@ -91,24 +91,46 @@ export function prepareTabTranscriber(locale: string, onProgress?: Progress) {
   }, onProgress);
 }
 
+export type RemoteSurface = 'browser' | 'window' | 'monitor';
+
+export interface RemoteSource extends AudioSource {
+  /** What the user actually picked: a tab, one window, or a whole screen (system audio). */
+  readonly surface: RemoteSurface | undefined;
+}
+
+/** Why a share came back without audio, phrased for what was picked. */
+export function noAudioMessage(surface: RemoteSurface | undefined): string {
+  switch (surface) {
+    case 'window': return 'Chrome can’t capture the sound of a single app window. Share your entire screen and turn on “Share system audio” instead.';
+    case 'monitor': return 'No sound was shared. Turn on “Share system audio” in the picker. If the option isn’t there, this computer doesn’t support it; open the meeting in a browser tab instead.';
+    default: return 'No sound was shared. Pick the meeting tab and keep “Also share tab audio” turned on.';
+  }
+}
+
 /**
- * Capture audio from a shared tab or window (Teams/Zoom/Meet in the browser) and
- * transcribe it on-device: pause-delimited chunks → AudioBuffer → Prompt API audio input.
+ * Capture remote speakers and transcribe them on-device: pause-delimited chunks → AudioBuffer → Prompt API audio input.
+ * - `tab`: Teams/Zoom/Meet in a browser tab, with tab audio.
+ * - `screen`: a desktop app (Teams, Zoom). Chrome can only get its sound as system audio from an entire-screen share,
+ *   which also picks up notifications and any other sound on the computer.
  */
-export async function startTabAudio(transcriber: Promise<LanguageModelSession>, ev: SourceEvents): Promise<AudioSource> {
+export async function startTabAudio(transcriber: Promise<LanguageModelSession>, ev: SourceEvents, kind: 'tab' | 'screen' = 'tab'): Promise<RemoteSource> {
   const stream = await navigator.mediaDevices.getDisplayMedia({
-    video: true, // Chrome requires video to offer the tab picker; we never read it
+    // Chrome requires video to show the picker; displaySurface only picks which picker tab opens first.
+    video: { displaySurface: kind === 'screen' ? 'monitor' : 'browser' },
     audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
     // Chrome-specific hints: offer system/tab audio, hide this app's own tab from the picker
     systemAudio: 'include',
     selfBrowserSurface: 'exclude',
     surfaceSwitching: 'include',
+    monitorTypeSurfaces: 'include',
   } as DisplayMediaStreamOptions);
 
+  const video = stream.getVideoTracks()[0];
+  const surface = video?.getSettings().displaySurface as RemoteSurface | undefined;
   const audio = stream.getAudioTracks()[0];
   if (!audio) {
     stream.getTracks().forEach((t) => t.stop());
-    throw new Error('No audio was shared. Pick a tab and turn on "Also share tab audio".');
+    throw new Error(noAudioMessage(surface));
   }
 
   const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
@@ -161,5 +183,5 @@ export async function startTabAudio(transcriber: Promise<LanguageModelSession>, 
   };
   audio.addEventListener('ended', () => { stop(); ev.onEnded?.(); });
 
-  return { local: true, stop };
+  return { local: true, surface, stop };
 }
