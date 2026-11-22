@@ -16,6 +16,7 @@ const ICONS = {
   minutes: 'description', ask: 'forum', check: 'check', close: 'close', lock: 'lock', cloud: 'cloud',
   play: 'play_arrow', chevron: 'keyboard_arrow_down', install: 'install_desktop', 'jump-down': 'arrow_downward',
   groups: 'groups', error: 'error', info: 'info', tab: 'tab', desktop: 'desktop_windows',
+  agenda: 'checklist', 'item-open': 'radio_button_unchecked', 'item-discussed': 'adjust', 'item-decided': 'check_circle-fill', timer: 'timer', edit: 'edit',
 };
 
 const encode = (svg) => svg

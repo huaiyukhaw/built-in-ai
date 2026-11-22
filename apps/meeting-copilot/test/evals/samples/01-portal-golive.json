@@ -14,11 +14,17 @@
     ["mic", "Open question: who signs off UAT on the client side? Nobody owns that yet."],
     ["tab", "Sarah will update the steering committee on Friday. Thanks everyone."]
   ],
+  "agenda": [
+    "FPX payment gateway",
+    "Accessibility audit",
+    "Data migration",
+    "Old portal after go-live",
+    "UAT sign-off",
+    "Staff training"
+  ],
   "expect": {
-    "decisions": [
-      { "keys": ["go live|golive|launch", "tenth|10"] },
-      { "keys": ["read only|old portal|legacy", "six|6"] }
-    ],
+    "agenda": ["decided", "decided", "decided", "decided", "discussed", "open"],
+    "decisions": [{ "keys": ["go live|golive|launch", "tenth|10"] }, { "keys": ["read only|old portal|legacy", "six|6"] }],
     "actionItems": [
       { "keys": ["bank|certificate|cert"], "owner": "Wei Ming|Ming", "due": "wednesday|today" },
       { "keys": ["accessibility|contrast|label|claims form|audit|issue"], "owner": "Priya", "due": "friday" },
@@ -27,9 +33,7 @@
       { "keys": ["send|certificate"], "owner": "bank", "optional": true },
       { "keys": ["duplicate|manual review|migration"], "optional": true }
     ],
-    "openQuestions": [
-      { "keys": ["uat", "sign"] }
-    ],
+    "openQuestions": [{ "keys": ["uat", "sign"] }],
     "summary": ["fpx|payment|gateway", "accessibility", "migration", "read only|six months|6 months"]
   }
 }

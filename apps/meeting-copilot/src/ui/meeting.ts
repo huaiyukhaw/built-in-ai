@@ -1,8 +1,9 @@
+import { agendaStatus, dueNudge, timeBox } from '../lib/agenda';
 import { Assistant } from '../lib/assistant';
 import { AiUnavailableError, availability, type ApiName } from '../lib/ai';
 import { autosaver, saveMeeting } from '../lib/db';
 import { fileName, mailtoUrl, toHtml, toMarkdown } from '../lib/export';
-import { modelGate } from '../lib/gate';
+import { isAbort, modelGate } from '../lib/gate';
 import { renderMarkdown } from '../lib/markdown';
 import { mergeExtractions } from '../lib/merge';
 import { EchoFilter } from '../lib/echo';
@@ -14,6 +15,7 @@ import { TranslatorPool } from '../lib/translate';
 import { hasMic, hasTabCapture, prepareTabTranscriber, startMic, startTabAudio, tabLangSupported, type AudioSource } from '../audio/sources';
 import { chooseRemoteKind } from './remote-picker';
 import { askSpeakerName } from './rename-speaker';
+import { agendaPanel } from './agenda-panel';
 import { flash, h } from './dom';
 import { hasPiP, popOut } from './pip';
 import { icon, renderAppBar, snackbar } from './shell';
@@ -55,7 +57,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   // While live, minutes are drafted in the background a few minutes at a time. The demo uses
   // small windows so the live action items list shows up within a minute.
   const demo = new URLSearchParams(location.search).has('demo');
-  const rolling = new RollingMinutes(meeting, assistant, modelGate, () => { saver.schedule(meeting); renderMinutes(); },
+  const rolling = new RollingMinutes(meeting, assistant, modelGate, () => { saver.schedule(meeting); renderMinutes(); refreshAgenda(); },
     demo ? { maxChars: 500, maxAgeMs: 20_000, minChars: 200 } : LIVE_WINDOW);
   const banner = h('div', { class: 'banner', role: 'region', 'aria-label': 'On-device AI status', hidden: true });
 
@@ -97,11 +99,20 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   const panelMin = h('div', { role: 'tabpanel', id: 'panel-min', 'aria-labelledby': 'tab-min', hidden: true },
     h('div', {}, genBtn), minutesBody, exportBar);
 
-  const side = h('section', { class: 'side', 'aria-label': 'Meeting assistant' },
-    h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Assistant' }, tabAsk, tabMin), panelAsk, panelMin);
+  const tabAgenda = h('button', { role: 'tab', id: 'tab-agenda', 'aria-controls': 'panel-agenda', 'aria-selected': 'false', tabindex: '-1' }, icon('agenda'), 'Agenda');
+  const agendaUI = agendaPanel(meeting, (changed) => {
+    saver.schedule(meeting);
+    nudged.clear();
+    if (changed) recheckAgenda();
+  }, () => stage.classList.contains('is-live'));
+  const panelAgenda = h('div', { role: 'tabpanel', id: 'panel-agenda', 'aria-labelledby': 'tab-agenda', hidden: true }, agendaUI.el);
 
+  const side = h('section', { class: 'side', 'aria-label': 'Meeting assistant' },
+    h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Assistant' }, tabAsk, tabAgenda, tabMin), panelAsk, panelAgenda, panelMin);
+
+  const TABS = [[tabAsk, panelAsk], [tabAgenda, panelAgenda], [tabMin, panelMin]] as const;
   function selectTab(tab: HTMLButtonElement, focus = false) {
-    for (const [t, p] of [[tabAsk, panelAsk], [tabMin, panelMin]] as const) {
+    for (const [t, p] of TABS) {
       const on = t === tab;
       t.setAttribute('aria-selected', String(on));
       t.tabIndex = on ? 0 : -1;
@@ -109,15 +120,15 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     }
     if (focus) tab.focus();
   }
-  tabAsk.addEventListener('click', () => selectTab(tabAsk));
-  tabMin.addEventListener('click', () => selectTab(tabMin));
+  for (const [t] of TABS) t.addEventListener('click', () => selectTab(t));
   side.querySelector('[role=tablist]')!.addEventListener('keydown', (e) => {
     const k = (e as KeyboardEvent).key;
-    if (k === 'ArrowRight' || k === 'ArrowLeft' || k === 'Home' || k === 'End') {
-      e.preventDefault();
-      const next = k === 'Home' ? tabAsk : k === 'End' ? tabMin : (document.activeElement === tabAsk ? tabMin : tabAsk);
-      selectTab(next, true);
-    }
+    const i = TABS.findIndex(([t]) => t === document.activeElement);
+    const n = TABS.length;
+    const next = k === 'Home' ? 0 : k === 'End' ? n - 1 : k === 'ArrowRight' ? (i + 1) % n : k === 'ArrowLeft' ? (i - 1 + n) % n : -1;
+    if (next < 0) return;
+    e.preventDefault();
+    selectTab(TABS[next][0], true);
   });
 
   // ------------------------------------------------------------ control bar
@@ -265,6 +276,9 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     refreshTabHint();
     void updateWakeLock();
     if (sources.size) rolling.start(); else rolling.stop();
+    clearInterval(agendaTimer);
+    agendaTimer = sources.size ? setInterval(refreshAgenda, 30_000) : undefined;
+    refreshAgenda();
     renderMinutes();
   }
 
@@ -408,6 +422,46 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     } catch (err) { out.text((err as Error).message); }
   });
 
+  // ------------------------------------------------------------ agenda
+  /** Time-box nudges already shown (minutes-left points, see NUDGE_AT). */
+  const nudged = new Set<number>();
+  let agendaTimer: ReturnType<typeof setInterval> | undefined;
+
+  function refreshAgenda() {
+    agendaUI.render();
+    const agenda = meeting.agenda ?? [];
+    if (!agenda.length || !stage.classList.contains('is-live')) return;
+    const box = timeBox(meeting, agendaStatus(agenda, meeting.rolling));
+    const at = dueNudge(box, nudged);
+    if (at !== null && box) snackbar(`${at > 0 ? `${box.minutesLeft} min left` : 'Time’s up'} · ${box.open} agenda item${box.open === 1 ? '' : 's'} not covered`);
+  }
+
+  let recheckRun = 0;
+  /** After the agenda is edited, check the windows already drafted against the new agenda, in the background. */
+  async function recheckAgenda() {
+    const run = ++recheckRun;
+    const agenda = meeting.agenda ?? [];
+    const windows = meeting.rolling ?? [];
+    for (const w of windows) delete w.agenda;
+    refreshAgenda();
+    if (!agenda.length) return;
+    for (const w of windows) {
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (run !== recheckRun) return;
+        try {
+          const check = await modelGate.background((signal) => assistant.checkAgenda(agenda, meeting.segments.slice(w.from, w.to), signal, w));
+          if (run !== recheckRun) return;
+          w.agenda = check;
+          saver.schedule(meeting);
+          refreshAgenda();
+          break;
+        } catch (err) {
+          if (!isAbort(err)) return; // Generate minutes checks any window left unchecked
+        }
+      }
+    }
+  }
+
   // ------------------------------------------------------------ minutes
   function renderMinutes() {
     const m = meeting.minutes;
@@ -457,12 +511,13 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
       meeting.minutes = await assistant.minutes(meeting.segments, (msg) => {
         const p = minutesBody.querySelector('.empty-note');
         if (p) p.textContent = msg;
-      }, meeting.rolling ??= []);
+      }, meeting.rolling ??= [], meeting.agenda ?? []);
       await saveMeeting(meeting);
       snackbar(`Minutes ready · ${meeting.minutes.actionItems.length} action item${meeting.minutes.actionItems.length === 1 ? '' : 's'}`);
     } catch (err) { fail(err); } finally {
       genBtn.disabled = false;
       renderMinutes();
+      agendaUI.render(); // the last stretch was only checked against the agenda just now
     }
   });
 
@@ -554,6 +609,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     for (const k of [...sources.keys()]) stopSource(k);
     echo.flush();
     echo.dispose();
+    clearInterval(agendaTimer);
+    recheckRun++;
     removeEventListener('beforeunload', beforeUnload);
     document.removeEventListener('visibilitychange', onVisible);
     rolling.stop();

@@ -1,4 +1,5 @@
 // Everything that reasons over the transcript: Q&A, catch-me-up and minutes.
+import { agendaStatus, checkFromNumbers, groundCheck, uncoveredQuestions, type AgendaCheck } from './agenda';
 import { AiUnavailableError, contextWindow, create, type Progress } from './ai';
 import { modelGate } from './gate';
 import { mergeExtractions, type Extracted } from './merge';
@@ -52,9 +53,22 @@ const EXTRACT_INSTRUCTIONS = [
   'Write every item with the words and facts from the TRANSCRIPT, one short sentence each. Never add names, dates or facts that are not in it.',
 ].join('\n');
 
+const AGENDA_INSTRUCTIONS = [
+  'You track a meeting agenda. You get the numbered AGENDA and part of the meeting TRANSCRIPT.',
+  '- "discussed": numbers of the agenda items this part of the transcript talks about.',
+  '- "decided": numbers of the items where, in this part, the group settled something about it or someone agreed to do something about it.',
+  'Only count an item when the TRANSCRIPT clearly talks about it; one shared word is not enough. Most parts cover one or two items and many cover none: then return empty lists.',
+].join('\n');
+
+const agendaSchema = (n: number) => {
+  const numbers = { type: 'array', items: { type: 'integer', enum: Array.from({ length: n }, (_, i) => i + 1) } };
+  return { type: 'object', properties: { discussed: numbers, decided: numbers }, required: ['discussed', 'decided'], additionalProperties: false };
+};
+
 export class Assistant {
   #qaBase?: Promise<LanguageModelSession>;
   #extractBase?: Promise<LanguageModelSession>;
+  #agendaBase?: Promise<LanguageModelSession>;
   #summarizers = new Map<string, Promise<SummarizerSession>>();
 
   constructor(private onProgress?: Progress) {}
@@ -82,6 +96,31 @@ export class Assistant {
     }, this.onProgress);
     this.#extractBase.catch(() => { this.#extractBase = undefined; });
     return this.#extractBase;
+  }
+
+  #agendaChecker() {
+    this.#agendaBase ??= create<LanguageModelSession>('LanguageModel', {
+      ...TEXT_EN,
+      initialPrompts: [{ role: 'system', content: AGENDA_INSTRUCTIONS }],
+    }, this.onProgress);
+    this.#agendaBase.catch(() => { this.#agendaBase = undefined; });
+    return this.#agendaBase;
+  }
+
+  /**
+   * Which agenda items one stretch of the transcript discussed or settled. `found` is the window's
+   * extracted decisions and action items, used to confirm "decided" (see groundCheck).
+   */
+  async checkAgenda(agenda: string[], part: Segment[], signal?: AbortSignal, found: Extracted = { decisions: [], actionItems: [], openQuestions: [] }): Promise<AgendaCheck> {
+    const base = await this.#agendaChecker();
+    const s = await base.clone({ signal });
+    try {
+      const input = `AGENDA:\n${agenda.map((t, i) => `${i + 1}. ${t}`).join('\n')}\n\nTRANSCRIPT:\n${formatTranscript(part)}`;
+      const check = checkFromNumbers(agenda, JSON.parse(await s.prompt(input, { responseConstraint: agendaSchema(agenda.length), signal })));
+      return groundCheck(agenda, check, part.map((p) => p.text), [...found.decisions, ...found.actionItems.map((a) => a.task)]);
+    } finally {
+      s.destroy();
+    }
   }
 
   #summarizer(type: SummarizerOptions['type'], length: SummarizerOptions['length']) {
@@ -150,7 +189,7 @@ export class Assistant {
    * Summarize and extract one window of the transcript. Used in the background while the meeting
    * is live (pass the gate's signal) and for whatever is left when minutes are generated.
    */
-  async processWindow(segments: Segment[], range: WindowRange, signal?: AbortSignal): Promise<MinutesWindow> {
+  async processWindow(segments: Segment[], range: WindowRange, signal?: AbortSignal, agenda: string[] = []): Promise<MinutesWindow> {
     const part = segments.slice(range.from, range.to);
     const summarizer = await this.#summarizer('key-points', 'long');
     const summary = await summarizer.summarize(formatTranscript(part), { signal });
@@ -168,7 +207,8 @@ export class Assistant {
     const s = await base.clone({ signal });
     try {
       const x = JSON.parse(await s.prompt(input, { responseConstraint: EXTRACT_SCHEMA, signal })) as Extracted;
-      return { ...range, summary, ...x, extracted: true };
+      const checked = agenda.length ? { agenda: await this.checkAgenda(agenda, part, signal, x) } : {};
+      return { ...range, summary, ...x, extracted: true, ...checked };
     } finally {
       s.destroy();
     }
@@ -199,16 +239,25 @@ export class Assistant {
    * extended in place for anything not yet covered (so a failure part-way keeps finished windows),
    * then everything is merged.
    */
-  async minutes(segments: Segment[], onStage: (msg: string) => void, windows: MinutesWindow[] = []): Promise<Minutes> {
+  async minutes(segments: Segment[], onStage: (msg: string) => void, windows: MinutesWindow[] = [], agenda: string[] = []): Promise<Minutes> {
     if (!segments.length) throw new Error('Nothing to summarize yet.');
     return modelGate.urgent(async () => {
       const done = windows.at(-1)?.to ?? 0;
       const todo = planWindows(segments, done, { maxChars: WINDOW_CHARS, final: true });
       for (const [i, range] of todo.entries()) {
         onStage(todo.length > 1 || done > 0 ? `Reading part ${i + 1} of ${todo.length}…` : 'Reading the transcript…');
-        windows.push(await this.processWindow(segments, range));
+        windows.push(await this.processWindow(segments, range, undefined, agenda));
+      }
+      // Windows drafted before the agenda was entered haven't been checked against it yet.
+      const unchecked = agenda.length ? windows.filter((w) => w.extracted && !w.agenda) : [];
+      for (const [i, w] of unchecked.entries()) {
+        onStage(`Checking the agenda, part ${i + 1} of ${unchecked.length}…`);
+        w.agenda = await this.checkAgenda(agenda, segments.slice(w.from, w.to), undefined, w);
       }
       const merged = mergeExtractions(windows);
+      if (agenda.length && windows.every((w) => w.extracted)) {
+        merged.openQuestions.push(...uncoveredQuestions(agenda, agendaStatus(agenda, windows)));
+      }
       const summary = await this.#mergeSummaries(windows.map((w) => w.summary), onStage, merged);
       const partial = windows.some((w) => !w.extracted)
         ? 'Decisions and action items need the Prompt API, which is unavailable on this device.' : undefined;

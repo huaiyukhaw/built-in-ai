@@ -112,6 +112,24 @@ main:has(> .meeting) { padding-block-end: 0; }
 .answer-card.thinking .a > div { color: var(--on-surface-variant); }
 .empty-note { font: var(--body-m); color: var(--on-surface-variant); }
 
+/* Agenda tab */
+.agenda { display: grid; gap: 0.75rem; font: var(--body-m); }
+.agenda-form { display: grid; gap: 0.5rem; }
+.agenda-form textarea.field { resize: vertical; min-block-size: 8rem; font: var(--body-m); }
+.agenda-form .field-label { margin-block-start: 0.25rem; }
+.agenda-head { display: flex; align-items: center; justify-content: space-between; gap: 0.5rem; }
+.agenda-time { display: inline-flex; align-items: center; gap: 0.5rem; margin: 0; font: var(--title-s); --icon-size: 1.15rem; }
+.agenda-time.warn { color: var(--on-warning-container, currentColor); background: var(--warning-container); padding: 0.25rem 0.75rem; border-radius: var(--r-full); }
+.agenda-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 0.25rem; }
+.agenda-list .item { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 0.75rem; padding: 0.625rem 0.75rem; border-radius: var(--r-m); background: var(--surface-container-high); }
+.agenda-list .item > .icon { color: var(--on-surface-variant); --icon-size: 1.25rem; }
+.agenda-list .item.discussed > .icon { color: var(--primary); }
+.agenda-list .item.decided > .icon { color: var(--tertiary); }
+.agenda-list .item.decided .title { color: var(--on-surface-variant); }
+.agenda-list .state { font: var(--label-m); color: var(--on-surface-variant); }
+.agenda .note { font: var(--body-s); color: var(--on-surface-variant); margin: 0; }
+
+
 .minutes { display: grid; gap: 0.25rem; font: var(--body-m); }
 .minutes ul { margin: 0; padding-inline-start: 1.1rem; display: grid; gap: 0.25rem; }
 .minutes .note { font: var(--body-s); color: var(--on-surface-variant); margin-block-start: 0.75rem; }

@@ -1,22 +1,23 @@
 {
-  "date": "2026-11-22T17:12:01.548Z",
+  "date": "2026-11-22T18:25:06.900Z",
   "userAgent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/157.0.0.0 Safari/537.36",
   "totals": {
     "samples": 6,
     "errors": 0,
     "recall": 0.89,
     "actionRecall": 1,
-    "owner": 0.8,
+    "owner": 0.87,
     "due": 1,
-    "extra": 10,
+    "extra": 12,
     "traps": 0,
     "summary": 0.93,
-    "seconds": 701
+    "agenda": 0.93,
+    "seconds": 714
   },
   "scores": [
     {
       "id": "portal-golive",
-      "ms": 69329,
+      "ms": 72118.20000001788,
       "stages": [
         "Reading the transcript…"
       ],
@@ -34,12 +35,11 @@
         "missed": [],
         "extra": [],
         "ownerChecked": 4,
-        "ownerOk": 2,
+        "ownerOk": 3,
         "dueChecked": 4,
         "dueOk": 4,
         "wrong": [
-          "follow up with the bank today and again on Wednesday morning.: owner \"\" ≠ Wei Ming|Ming",
-          "update the steering committee on Friday.: owner \"\" ≠ Sarah"
+          "follow up with the bank today and again on Wednesday morning.: owner \"\" ≠ Wei Ming|Ming"
         ]
       },
       "openQuestions": {
@@ -50,11 +50,18 @@
       },
       "summaryHit": 4,
       "summaryTotal": 4,
-      "traps": []
+      "traps": [],
+      "agenda": {
+        "total": 6,
+        "ok": 5,
+        "wrong": [
+          "FPX payment gateway: discussed ≠ decided"
+        ]
+      }
     },
     {
       "id": "remote-intros",
-      "ms": 64755.70000001788,
+      "ms": 51288.29999998212,
       "stages": [
         "Reading the transcript…"
       ],
@@ -87,7 +94,7 @@
     },
     {
       "id": "conditional-rejected",
-      "ms": 50651,
+      "ms": 51674.30000001192,
       "stages": [
         "Reading the transcript…"
       ],
@@ -117,16 +124,21 @@
         "found": 0,
         "missed": [],
         "extra": [
-          "Could we use the free trial they offered for internal alerts only?"
+          "What about the free trial they offered? Could we use it for internal alerts only?"
         ]
       },
       "summaryHit": 2,
       "summaryTotal": 2,
-      "traps": []
+      "traps": [],
+      "agenda": {
+        "total": 3,
+        "ok": 3,
+        "wrong": []
+      }
     },
     {
       "id": "no-actions",
-      "ms": 25454.59999999404,
+      "ms": 20793.5,
       "stages": [
         "Reading the transcript…"
       ],
@@ -151,9 +163,7 @@
         "expected": 0,
         "found": 0,
         "missed": [],
-        "extra": [
-          "How many users are on the beta now?"
-        ]
+        "extra": []
       },
       "summaryHit": 2,
       "summaryTotal": 2,
@@ -161,7 +171,7 @@
     },
     {
       "id": "malaysian-names",
-      "ms": 55038.5,
+      "ms": 48883.90000000596,
       "stages": [
         "Reading the transcript…"
       ],
@@ -194,7 +204,7 @@
     },
     {
       "id": "long-meeting",
-      "ms": 435865.5,
+      "ms": 469734.59999999404,
       "stages": [
         "Reading part 1 of 9…",
         "Reading part 2 of 9…",
@@ -215,9 +225,12 @@
         ],
         "extra": [
           "The dashboard is green across the board.",
-          "Response times are within target across all regions.",
           "Ticket volume was flat this week, nothing unusual.",
           "No incidents over the weekend.",
+          "Response times are within target across all regions.",
+          "Nothing new from the vendor side this week.",
+          "We closed most of the backlog from last sprint.",
+          "Disk usage on the file server is around sixty percent, same as before.",
           "The overnight batch jobs all finished on time.",
           "Backups completed successfully every night.",
           "Helpdesk satisfaction scores are holding steady."
@@ -228,7 +241,7 @@
         "found": 2,
         "missed": [],
         "extra": [
-          ": you're still doing the reporting database migration by end of month?"
+          "Hafiz: still open: do we still need the Saturday on-call rota?"
         ],
         "ownerChecked": 2,
         "ownerOk": 2,
@@ -244,13 +257,18 @@
       },
       "summaryHit": 1,
       "summaryTotal": 2,
-      "traps": []
+      "traps": [],
+      "agenda": {
+        "total": 5,
+        "ok": 5,
+        "wrong": []
+      }
     }
   ],
   "outputs": {
     "portal-golive": {
-      "generatedAt": 1795366889710,
-      "summary": "* The customer portal go-live is the main item at hand.\n* The FPX payment gateway failed in UAT due to an expired bank certificate.\n* The bank will send a new certificate by Wednesday.\n* If the new certificate is not received by Wednesday, the go-live date will be pushed from February 3rd to February 10th.\n* The accessibility audit identified fourteen issues on the claims form.\n* Data migration is 80% complete, with remaining issues needing manual review due to duplicate IC numbers.\n* Legal requires the old portal to remain read-only for six months.\n* The UAT sign-off on the client side is currently undefined.",
+      "generatedAt": 1795371264517,
+      "summary": "* The customer portal go-live is the main topic of the meeting.\n* The FPX payment gateway fails in UAT due to an expired bank certificate.\n* The bank will provide a new certificate by Wednesday.\n* The go-live date may be pushed from February 3rd to February 10th if the certificate isn't received.\n* Accessibility audit identified 14 issues on the claims form; Priya will fix them by next Friday.\n* Data migration is 80% complete, with manual review needed for duplicate IC numbers.\n* The legal team requires the old portal to remain read-only for six months.\n* The UAT sign-off responsibility from the client-side is currently undefined.",
       "decisions": [
         "Legal wants the old portal kept read-only for six months, so we agreed on six months."
       ],
@@ -267,44 +285,45 @@
         },
         {
           "owner": "Priya",
-          "task": "fix fourteen issues on the claims form",
+          "task": "fix fourteen issues on the claims form.",
           "due": "next Friday"
         },
         {
-          "owner": "",
+          "owner": "Sarah",
           "task": "update the steering committee on Friday.",
           "due": "Friday"
         }
       ],
       "openQuestions": [
-        "who signs off UAT on the client side?"
+        "who signs off UAT on the client side?",
+        "Agenda item not covered: Staff training"
       ]
     },
     "remote-intros": {
-      "generatedAt": 1795366954468,
-      "summary": "* iOS crashes when opening the camera on older iPhones, according to Priya from QA.\n* Priya will log the crash with steps and a video by tomorrow.\n* Daniel will address the camera crash and aim to have a fix ready for testing by Thursday.\n* The new onboarding screens have been approved by Aisha.\n* Aisha will export assets to Figma today.\n* The mobile release is scheduled for next Monday.\n* The group will leave the question of expediting the App Store review open for now.\n* The meeting organizer will draft the release notes this week.",
+      "generatedAt": 1795371315807,
+      "summary": "* iOS crashes when opening the camera on older iPhones. (Priya (Remote))\n* Priya (QA) will log the crash with steps and a video by tomorrow.\n* Daniel will have a fix for the camera crash ready for testing by Thursday.\n* The new onboarding screens are approved. (Aisha)\n* Assets for the onboarding screens will be exported to Figma today.\n* The mobile release is scheduled for next Monday.\n* Expediting the App Store review is uncertain; the requestor is unclear.\n* Release notes will be drafted this week.",
       "decisions": [
         "The release moves to next Monday to give Daniel time for the fix."
       ],
       "actionItems": [
         {
           "owner": "Priya",
-          "task": "I will log the crash with steps and a video",
+          "task": "log the crash with steps and a video",
           "due": "by tomorrow"
         },
         {
           "owner": "Daniel",
-          "task": "I'll have a fix ready for testing",
+          "task": "have a fix ready for testing",
           "due": "by Thursday"
         },
         {
           "owner": "Aisha",
-          "task": "I'll export the assets to the Figma handoff",
+          "task": "export the assets to the Figma handoff",
           "due": "today"
         },
         {
           "owner": "",
-          "task": "I will draft the release notes",
+          "task": "draft the release notes",
           "due": "this week"
         }
       ],
@@ -313,10 +332,10 @@
       ]
     },
     "conditional-rejected": {
-      "generatedAt": 1795367005121,
-      "summary": "* A decision has been made to move to a new cloud region if a load test with two thousand concurrent users passes.\n* The load test is scheduled for the fourteenth and will be run by Ravi.\n* A cheaper SMS vendor option was rejected due to poor delivery rates in Sabah.\n* The company will continue using the current SMS vendor for the year.\n* A free trial offered by a vendor will not be used for internal alerts.\n* Mei Ling is tasked with renewing the SMS contract before it expires at the end of March.\n* If the region move occurs, deployments will be frozen for that weekend.",
+      "generatedAt": 1795371367483,
+      "summary": "* The hosting move to the new cloud region is contingent on passing a load test with two thousand concurrent users.\n* The load test is scheduled for the fourteenth, and Ravi will conduct it.\n* Switching to a cheaper SMS vendor was rejected due to poor delivery rates in Sabah.\n* The company will maintain the current SMS vendor for the current year.\n* A free trial from another SMS vendor will not be utilized; the company will stick with one vendor.\n* Mei Ling is tasked with renewing the SMS contract before March 31st.\n* If the hosting move occurs, deployments will be frozen for that weekend.",
       "decisions": [
-        "The hosting move will happen to the new cloud region if the load test passes at two thousand concurrent users.",
+        "The hosting move happens only if the load test passes at two thousand concurrent users.",
         "We stay with the current SMS vendor for this year."
       ],
       "actionItems": [
@@ -328,47 +347,46 @@
         {
           "owner": "",
           "task": "send the request to finance to renew the SMS contract",
-          "due": "end of March"
+          "due": "by end of March"
         }
       ],
       "openQuestions": [
-        "Could we use the free trial they offered for internal alerts only?"
+        "What about the free trial they offered? Could we use it for internal alerts only?",
+        "Agenda item not covered: Office relocation"
       ]
     },
     "no-actions": {
-      "generatedAt": 1795367030577,
-      "summary": "* The meeting was a \"show-and-tell\" with no decisions to be made.\n* A new dashboard prototype was presented.\n* The dashboard includes a chart showing daily claims by state.\n* The color choices on the map in the prototype are difficult to distinguish.\n* The dashboard is currently being used by approximately *three hundred* beta users.\n* A significant portion of the beta users are from the *Penang* branch.\n* Penang branch is identified as an *early adopter*.",
+      "generatedAt": 1795371388277,
+      "summary": "* The meeting was a show-and-tell with no decisions needed.\n* A new dashboard prototype was presented.\n* The dashboard features a chart showing daily claims by state.\n* The color palette on the map is difficult to distinguish.\n* The beta program has approximately *three hundred* users.\n* Most beta users are from the *Penang* branch.\n* Penang branch is described as an early adopter.",
       "decisions": [],
       "actionItems": [],
-      "openQuestions": [
-        "How many users are on the beta now?"
-      ]
+      "openQuestions": []
     },
     "malaysian-names": {
-      "generatedAt": 1795367085616,
-      "summary": "* Johor branch rollout is underway.\n* Training slides are ready and will be delivered by Siti on the twelfth.\n* Twenty laptops have been imaged, with ten more expected by Tuesday, as confirmed by Razak.\n* Muthu will test printer drivers on the new image and report back.\n* Lim Wei Jie will send an announcement email to Johor staff next Monday.\n* The go-live date for Johor is the nineteenth.\n* Overtime approval for weekend support is still pending.",
+      "generatedAt": 1795371437162,
+      "summary": "* Johor branch rollout is underway.\n* Training slides are ready for Johor staff, with a session scheduled for the twelfth.\n* Twenty laptops have been imaged, with ten more expected by Tuesday.\n* Printer drivers will be tested on the new image tomorrow.\n* Go-live communication will be sent to Johor staff next Monday.\n* The go-live date for Johor remains the nineteenth.\n* Overtime approval is still needed for weekend support.",
       "decisions": [
-        "Go-live for Johor is the nineteenth, no change."
+        "We agreed go-live for Johor is the nineteenth, no change."
       ],
       "actionItems": [
         {
           "owner": "Siti",
-          "task": "run the session for Johor staff on the twelfth.",
+          "task": "run the session for Johor staff on the twelfth",
           "due": "the twelfth"
         },
         {
           "owner": "Razak",
-          "task": "Twenty laptops done, ten more by Tuesday.",
-          "due": "Tuesday"
+          "task": "confirm the laptops are imaged",
+          "due": "by Tuesday"
         },
         {
           "owner": "Muthu",
-          "task": "test the drivers on the new image tomorrow and report back.",
+          "task": "test the drivers on the new image tomorrow and report back",
           "due": "tomorrow"
         },
         {
           "owner": "Lim Wei Jie",
-          "task": "send the announcement email to all Johor staff next Monday.",
+          "task": "send the announcement email to all Johor staff next Monday",
           "due": "next Monday"
         }
       ],
@@ -377,13 +395,16 @@
       ]
     },
     "long-meeting": {
-      "generatedAt": 1795367521483,
-      "summary": "* Ticket volume remained *flat* this week.\n* Response times were *within target* across all regions.\n* The dashboard status is *green across the board*.\n* There were *no incidents* over the weekend.\n* Overnight batch jobs *finished on time*.\n* Backups were *completed successfully every night*.\n* Helpdesk satisfaction scores are *holding steady*.\n* Reporting database migration is scheduled to be completed by the end of the month.\n* Grace will renew SSL certificates before they expire on the twentieth.",
+      "generatedAt": 1795371906899,
+      "summary": "* Ticket volume remained flat this week, indicating *nothing unusual*.\n* There were *no incidents* reported over the weekend.\n* Response times are *within target* across all regions.\n* The *dashboard is green across the board*, suggesting system stability.\n* Overnight batch jobs finished on time.\n* Backups have been *completed successfully every night*.\n* Helpdesk satisfaction scores are *holding steady*.\n* Most of the backlog from the last sprint has been closed.\n* The reporting database will be migrated to a new server by the end of the month.",
       "decisions": [
         "The dashboard is green across the board.",
-        "Response times are within target across all regions.",
         "Ticket volume was flat this week, nothing unusual.",
         "No incidents over the weekend.",
+        "Response times are within target across all regions.",
+        "Nothing new from the vendor side this week.",
+        "We closed most of the backlog from last sprint.",
+        "Disk usage on the file server is around sixty percent, same as before.",
         "The overnight batch jobs all finished on time.",
         "Backups completed successfully every night.",
         "Helpdesk satisfaction scores are holding steady."
@@ -391,22 +412,23 @@
       "actionItems": [
         {
           "owner": "Hafiz",
-          "task": "migrate the reporting database to the new server",
-          "due": "by end of the month"
-        },
-        {
-          "owner": "",
           "task": "you're still doing the reporting database migration by end of month?",
-          "due": ""
+          "due": "end of the month"
         },
         {
           "owner": "Grace",
           "task": "renew the SSL certificates",
-          "due": "the twentieth"
+          "due": "twentieth"
+        },
+        {
+          "owner": "Hafiz",
+          "task": "still open: do we still need the Saturday on-call rota?",
+          "due": ""
         }
       ],
       "openQuestions": [
-        "do we still need the Saturday on-call rota?"
+        "do we still need the Saturday on-call rota?",
+        "Agenda item not covered: Budget for next year"
       ]
     }
   },
@@ -415,7 +437,7 @@
       {
         "from": 0,
         "to": 11,
-        "summary": "* The customer portal go-live is the main item at hand.\n* The FPX payment gateway failed in UAT due to an expired bank certificate.\n* The bank will send a new certificate by Wednesday.\n* If the new certificate is not received by Wednesday, the go-live date will be pushed from February 3rd to February 10th.\n* The accessibility audit identified fourteen issues on the claims form.\n* Data migration is 80% complete, with remaining issues needing manual review due to duplicate IC numbers.\n* Legal requires the old portal to remain read-only for six months.\n* The UAT sign-off on the client side is currently undefined.",
+        "summary": "* The customer portal go-live is the main topic of the meeting.\n* The FPX payment gateway fails in UAT due to an expired bank certificate.\n* The bank will provide a new certificate by Wednesday.\n* The go-live date may be pushed from February 3rd to February 10th if the certificate isn't received.\n* Accessibility audit identified 14 issues on the claims form; Priya will fix them by next Friday.\n* Data migration is 80% complete, with manual review needed for duplicate IC numbers.\n* The legal team requires the old portal to remain read-only for six months.\n* The UAT sign-off responsibility from the client-side is currently undefined.",
         "decisions": [
           "Legal wants the old portal kept read-only for six months, so we agreed on six months."
         ],
@@ -432,11 +454,11 @@
           },
           {
             "owner": "Priya",
-            "task": "fix fourteen issues on the claims form",
+            "task": "fix fourteen issues on the claims form.",
             "due": "next Friday"
           },
           {
-            "owner": "Remote",
+            "owner": "Sarah",
             "task": "update the steering committee on Friday.",
             "due": "Friday"
           }
@@ -444,36 +466,50 @@
         "openQuestions": [
           "who signs off UAT on the client side?"
         ],
-        "extracted": true
+        "extracted": true,
+        "agenda": {
+          "discussed": [
+            "FPX payment gateway",
+            "Accessibility audit",
+            "Data migration",
+            "Old portal after go-live",
+            "UAT sign-off"
+          ],
+          "decided": [
+            "Accessibility audit",
+            "Data migration",
+            "Old portal after go-live"
+          ]
+        }
       }
     ],
     "remote-intros": [
       {
         "from": 0,
         "to": 10,
-        "summary": "* iOS crashes when opening the camera on older iPhones, according to Priya from QA.\n* Priya will log the crash with steps and a video by tomorrow.\n* Daniel will address the camera crash and aim to have a fix ready for testing by Thursday.\n* The new onboarding screens have been approved by Aisha.\n* Aisha will export assets to Figma today.\n* The mobile release is scheduled for next Monday.\n* The group will leave the question of expediting the App Store review open for now.\n* The meeting organizer will draft the release notes this week.",
+        "summary": "* iOS crashes when opening the camera on older iPhones. (Priya (Remote))\n* Priya (QA) will log the crash with steps and a video by tomorrow.\n* Daniel will have a fix for the camera crash ready for testing by Thursday.\n* The new onboarding screens are approved. (Aisha)\n* Assets for the onboarding screens will be exported to Figma today.\n* The mobile release is scheduled for next Monday.\n* Expediting the App Store review is uncertain; the requestor is unclear.\n* Release notes will be drafted this week.",
         "decisions": [
           "The release moves to next Monday to give Daniel time for the fix."
         ],
         "actionItems": [
           {
             "owner": "Priya (Remote)",
-            "task": "I will log the crash with steps and a video",
+            "task": "log the crash with steps and a video",
             "due": "by tomorrow"
           },
           {
             "owner": "Daniel (Remote)",
-            "task": "I'll have a fix ready for testing",
+            "task": "have a fix ready for testing",
             "due": "by Thursday"
           },
           {
             "owner": "Aisha (Remote)",
-            "task": "I'll export the assets to the Figma handoff",
+            "task": "export the assets to the Figma handoff",
             "due": "today"
           },
           {
             "owner": "Room",
-            "task": "I will draft the release notes",
+            "task": "draft the release notes",
             "due": "this week"
           }
         ],
@@ -487,9 +523,9 @@
       {
         "from": 0,
         "to": 10,
-        "summary": "* A decision has been made to move to a new cloud region if a load test with two thousand concurrent users passes.\n* The load test is scheduled for the fourteenth and will be run by Ravi.\n* A cheaper SMS vendor option was rejected due to poor delivery rates in Sabah.\n* The company will continue using the current SMS vendor for the year.\n* A free trial offered by a vendor will not be used for internal alerts.\n* Mei Ling is tasked with renewing the SMS contract before it expires at the end of March.\n* If the region move occurs, deployments will be frozen for that weekend.",
+        "summary": "* The hosting move to the new cloud region is contingent on passing a load test with two thousand concurrent users.\n* The load test is scheduled for the fourteenth, and Ravi will conduct it.\n* Switching to a cheaper SMS vendor was rejected due to poor delivery rates in Sabah.\n* The company will maintain the current SMS vendor for the current year.\n* A free trial from another SMS vendor will not be utilized; the company will stick with one vendor.\n* Mei Ling is tasked with renewing the SMS contract before March 31st.\n* If the hosting move occurs, deployments will be frozen for that weekend.",
         "decisions": [
-          "The hosting move will happen to the new cloud region if the load test passes at two thousand concurrent users.",
+          "The hosting move happens only if the load test passes at two thousand concurrent users.",
           "We stay with the current SMS vendor for this year."
         ],
         "actionItems": [
@@ -501,25 +537,33 @@
           {
             "owner": "Remote",
             "task": "send the request to finance to renew the SMS contract",
-            "due": "end of March"
+            "due": "by end of March"
           }
         ],
         "openQuestions": [
-          "Could we use the free trial they offered for internal alerts only?"
+          "What about the free trial they offered? Could we use it for internal alerts only?"
         ],
-        "extracted": true
+        "extracted": true,
+        "agenda": {
+          "discussed": [
+            "Hosting move",
+            "SMS vendor"
+          ],
+          "decided": [
+            "Hosting move",
+            "SMS vendor"
+          ]
+        }
       }
     ],
     "no-actions": [
       {
         "from": 0,
         "to": 8,
-        "summary": "* The meeting was a \"show-and-tell\" with no decisions to be made.\n* A new dashboard prototype was presented.\n* The dashboard includes a chart showing daily claims by state.\n* The color choices on the map in the prototype are difficult to distinguish.\n* The dashboard is currently being used by approximately *three hundred* beta users.\n* A significant portion of the beta users are from the *Penang* branch.\n* Penang branch is identified as an *early adopter*.",
+        "summary": "* The meeting was a show-and-tell with no decisions needed.\n* A new dashboard prototype was presented.\n* The dashboard features a chart showing daily claims by state.\n* The color palette on the map is difficult to distinguish.\n* The beta program has approximately *three hundred* users.\n* Most beta users are from the *Penang* branch.\n* Penang branch is described as an early adopter.",
         "decisions": [],
         "actionItems": [],
-        "openQuestions": [
-          "How many users are on the beta now?"
-        ],
+        "openQuestions": [],
         "extracted": true
       }
     ],
@@ -527,29 +571,29 @@
       {
         "from": 0,
         "to": 10,
-        "summary": "* Johor branch rollout is underway.\n* Training slides are ready and will be delivered by Siti on the twelfth.\n* Twenty laptops have been imaged, with ten more expected by Tuesday, as confirmed by Razak.\n* Muthu will test printer drivers on the new image and report back.\n* Lim Wei Jie will send an announcement email to Johor staff next Monday.\n* The go-live date for Johor is the nineteenth.\n* Overtime approval for weekend support is still pending.",
+        "summary": "* Johor branch rollout is underway.\n* Training slides are ready for Johor staff, with a session scheduled for the twelfth.\n* Twenty laptops have been imaged, with ten more expected by Tuesday.\n* Printer drivers will be tested on the new image tomorrow.\n* Go-live communication will be sent to Johor staff next Monday.\n* The go-live date for Johor remains the nineteenth.\n* Overtime approval is still needed for weekend support.",
         "decisions": [
-          "Go-live for Johor is the nineteenth, no change."
+          "We agreed go-live for Johor is the nineteenth, no change."
         ],
         "actionItems": [
           {
             "owner": "Siti (Remote)",
-            "task": "run the session for Johor staff on the twelfth.",
+            "task": "run the session for Johor staff on the twelfth",
             "due": "the twelfth"
           },
           {
             "owner": "Razak (Remote)",
-            "task": "Twenty laptops done, ten more by Tuesday.",
-            "due": "Tuesday"
+            "task": "confirm the laptops are imaged",
+            "due": "by Tuesday"
           },
           {
             "owner": "Muthu (Remote)",
-            "task": "test the drivers on the new image tomorrow and report back.",
+            "task": "test the drivers on the new image tomorrow and report back",
             "due": "tomorrow"
           },
           {
             "owner": "Lim Wei Jie (Remote)",
-            "task": "send the announcement email to all Johor staff next Monday.",
+            "task": "send the announcement email to all Johor staff next Monday",
             "due": "next Monday"
           }
         ],
@@ -563,43 +607,61 @@
       {
         "from": 0,
         "to": 53,
-        "summary": "* Ticket volume remained *flat* this week.\n* There were *no incidents* over the weekend.\n* Response times were *within target* across all regions.\n* The dashboard status is *green across the board*.\n* Backups were *completed successfully every night*.\n* Helpdesk satisfaction scores are *holding steady*.\n* The overnight batch jobs *finished on time*.",
+        "summary": "* Ticket volume remained flat this week, which is considered *nothing unusual*.\n* There were no incidents reported over the weekend.\n* Response times were within the target across all regions.\n* Disk usage on the file server is around 60%, the same as the previous week.\n* Overnight batch jobs finished on time.\n* Backups were completed successfully every night.\n* Helpdesk satisfaction scores are holding steady.\n* The dashboard status is consistently \"green\".\n* Most of the backlog from the last sprint has been closed.",
         "decisions": [
-          "The dashboard is green across the board.",
-          "Response times are within target across all regions."
+          "The dashboard is green across the board."
         ],
         "actionItems": [],
         "openQuestions": [],
-        "extracted": true
+        "extracted": true,
+        "agenda": {
+          "discussed": [
+            "Weekend on-call rota"
+          ],
+          "decided": []
+        }
       },
       {
         "from": 53,
         "to": 104,
-        "summary": "* Disk usage on the file server remains around sixty percent.\n* Overnight batch jobs completed on time.\n* Backups are completed successfully every night.\n* Helpdesk satisfaction scores are holding steady.\n* Ticket volume was flat this week.\n* No incidents occurred over the weekend.\n* Response times are within target across all regions.\n* The reporting database will be migrated to a new server by the end of the month.\n* Most of the backlog from the last sprint has been closed.",
-        "decisions": [],
-        "actionItems": [
-          {
-            "owner": "Hafiz",
-            "task": "migrate the reporting database to the new server",
-            "due": "by end of the month"
-          }
+        "summary": "* Disk usage on the file server remains around *sixty percent*.\n* Overnight batch jobs finished on time.\n* Backups have been completed successfully every night.\n* Helpdesk satisfaction scores are steady.\n* The dashboard status is *green* across all areas.\n* Ticket volume was flat this week.\n* The reporting database will be migrated to a new server by the end of the month.",
+        "decisions": [
+          "Hafiz will migrate the reporting database to the new server by the end of the month."
         ],
+        "actionItems": [],
         "openQuestions": [],
-        "extracted": true
+        "extracted": true,
+        "agenda": {
+          "discussed": [
+            "Reporting database migration"
+          ],
+          "decided": [
+            "Reporting database migration"
+          ]
+        }
       },
       {
         "from": 104,
         "to": 156,
-        "summary": "* Ticket volume remained flat this week.\n* There were no incidents reported over the weekend.\n* Response times are currently within target across all regions.\n* The dashboard status is \"green across the board.\"\n* The vendor side reported no new updates this week.\n* Most of the backlog from the previous sprint has been closed.\n* Nightly backups have completed successfully.\n* Helpdesk satisfaction scores are consistent.\n* Over night batch jobs finished on time.\n* The disk usage on the file server is approximately sixty percent.",
+        "summary": "* Ticket volume remained *flat* this week, indicating no unusual activity.\n* There were *no incidents* reported over the weekend.\n* Response times are *within target* across all regions.\n* The *dashboard is green across the board*, suggesting system stability.\n* The *overnight batch jobs all finished on time*.\n* Backups have been *completed successfully every night*.\n* Helpdesk satisfaction scores are *holding steady*.\n* The old VPN will be *retired on June 1st*.",
         "decisions": [],
         "actionItems": [],
         "openQuestions": [],
-        "extracted": true
+        "extracted": true,
+        "agenda": {
+          "discussed": [
+            "Old VPN",
+            "Weekend on-call rota"
+          ],
+          "decided": [
+            "Old VPN"
+          ]
+        }
       },
       {
         "from": 156,
         "to": 207,
-        "summary": "* Disk usage on the file server is approximately 60%, consistent with previous periods.\n* Overnight batch jobs completed as scheduled.\n* Backups have been completed successfully each night.\n* Helpdesk satisfaction scores remain consistent.\n* Ticket volume was flat this week.\n* No incidents occurred over the weekend.\n* Response times are within target across all regions.\n* Most of the backlog from the last sprint has been closed.\n* The dashboard status is green across all areas.\n* The vendor did not report any new updates this week.\n* Reporting database migration is scheduled to be completed by the end of the month.",
+        "summary": "* Disk usage on the file server is around *sixty percent*.\n* Overnight batch jobs completed *on time*.\n* Backups completed *successfully every night*.\n* Helpdesk satisfaction scores are *holding steady*.\n* Ticket volume was *flat* this week.\n* No *incidents* occurred over the weekend.\n* Response times are *within target* across all regions.\n* Most of the backlog from last sprint was closed.\n* The dashboard is *green across the board*.\n* Reporting database migration is planned by *end of month*.",
         "decisions": [],
         "actionItems": [
           {
@@ -609,74 +671,125 @@
           }
         ],
         "openQuestions": [],
-        "extracted": true
+        "extracted": true,
+        "agenda": {
+          "discussed": [
+            "Reporting database migration"
+          ],
+          "decided": [
+            "Reporting database migration"
+          ]
+        }
       },
       {
         "from": 207,
         "to": 259,
-        "summary": "* Ticket volume remained *flat* this week.\n* There were *no incidents* over the weekend.\n* Response times were *within target* across all regions.\n* The *dashboard is green across the board*.\n* Nothing *new from the vendor side* this week.\n* Most of the *backlog from last sprint* was closed.\n* The *overnight batch jobs finished on time*.\n* Disk usage on the file server is *around sixty percent*.\n* Backups were *completed successfully every night*.\n* Helpdesk satisfaction scores are *holding steady*.",
+        "summary": "* Ticket volume remained flat this week.\n* There were no incidents reported over the weekend.\n* Response times are meeting target across all regions.\n* The dashboard is showing a *green* status across the board.\n* Nothing new has been reported from the vendor side this week.\n* Most of the backlog from the last sprint has been closed.\n* Backups have been completed successfully every night.\n* Helpdesk satisfaction scores are holding steady.",
         "decisions": [
           "Ticket volume was flat this week, nothing unusual.",
           "No incidents over the weekend.",
           "Response times are within target across all regions.",
           "The dashboard is green across the board.",
+          "Nothing new from the vendor side this week.",
+          "We closed most of the backlog from last sprint.",
+          "Disk usage on the file server is around sixty percent, same as before.",
           "The overnight batch jobs all finished on time.",
           "Backups completed successfully every night.",
           "Helpdesk satisfaction scores are holding steady."
         ],
         "actionItems": [],
         "openQuestions": [],
-        "extracted": true
+        "extracted": true,
+        "agenda": {
+          "discussed": [
+            "Weekend on-call rota"
+          ],
+          "decided": [
+            "Weekend on-call rota"
+          ]
+        }
       },
       {
         "from": 259,
         "to": 309,
-        "summary": "* Overnight batch jobs completed on time.\n* Backups completed successfully every night.\n* Helpdesk satisfaction scores are steady.\n* Ticket volume was flat this week.\n* No incidents occurred over the weekend.\n* Response times are within target across all regions.\n* The dashboard is green across the board.\n* Disk usage on the file server is around 60%.\n* Most of the backlog from the last sprint was closed.",
+        "summary": "* Overnight batch jobs finished on time.\n* Backups were completed successfully every night.\n* Helpdesk satisfaction scores are holding steady.\n* Ticket volume was flat this week.\n* There were no incidents over the weekend.\n* Response times are within target across all regions.\n* The dashboard is green across the board.",
         "decisions": [],
         "actionItems": [],
         "openQuestions": [],
-        "extracted": true
+        "extracted": true,
+        "agenda": {
+          "discussed": [
+            "Reporting database migration",
+            "Weekend on-call rota"
+          ],
+          "decided": []
+        }
       },
       {
         "from": 309,
         "to": 357,
-        "summary": "* Ticket volume was flat this week.\n* No incidents occurred over the weekend.\n* Response times are within target across all regions.\n* The dashboard is green across the board.\n* Nothing new from the vendor side this week.\n* Most backlog from the previous sprint has been closed.\n* Disk usage on the file server is around sixty percent.\n* Overnight batch jobs completed on time.\n* Backups completed successfully every night.\n* Helpdesk satisfaction scores are holding steady.\n* Grace will renew SSL certificates before they expire on the twentieth.",
-        "decisions": [
-          "The dashboard is green across the board."
-        ],
+        "summary": "* Ticket volume remained *flat* this week.\n* There were *no incidents* over the weekend.\n* Response times are *within target* across all regions.\n* The *dashboard is green across the board*.\n* No *new developments* were reported from the vendor.\n* Most *backlog from the previous sprint* was closed.\n* Backups are completed *successfully every night*.\n* Helpdesk satisfaction scores are *holding steady*.\n* Overnight batch jobs *finished on time*.\n* Disk usage on the file server is *around sixty percent*.",
+        "decisions": [],
         "actionItems": [
           {
             "owner": "Grace",
             "task": "renew the SSL certificates",
-            "due": "the twentieth"
+            "due": "twentieth"
           }
         ],
         "openQuestions": [],
-        "extracted": true
+        "extracted": true,
+        "agenda": {
+          "discussed": [
+            "SSL certificates",
+            "Weekend on-call rota"
+          ],
+          "decided": [
+            "SSL certificates"
+          ]
+        }
       },
       {
         "from": 357,
         "to": 406,
-        "summary": "* The team closed most of the backlog from the last sprint.\n* Overnight batch jobs finished on time.\n* Backups completed successfully every night.\n* Helpdesk satisfaction scores are stable.\n* Ticket volume was flat this week.\n* No incidents occurred over the weekend.\n* Response times are within target across all regions.\n* The dashboard status is green overall.",
-        "decisions": [
-          "The dashboard is green across the board."
-        ],
+        "summary": "* Most of the backlog from the previous sprint has been closed.\n* Overnight batch jobs completed on time.\n* Backups have been completed successfully every night.\n* Helpdesk satisfaction scores are holding steady.\n* Ticket volume was flat this week.\n* No incidents occurred over the weekend.\n* Response times are within target across all regions.",
+        "decisions": [],
         "actionItems": [],
         "openQuestions": [],
-        "extracted": true
+        "extracted": true,
+        "agenda": {
+          "discussed": [
+            "Weekend on-call rota"
+          ],
+          "decided": []
+        }
       },
       {
         "from": 406,
         "to": 407,
-        "summary": "* The question remains about whether the Saturday on-call rota is still necessary.\n* The discussion is taking place in a room referred to as \"Room\".\n* Hafiz is posing the question to the participants.",
+        "summary": "* The discussion concerns whether the Saturday on-call rota is still required.\n* Hafiz poses the question to the group, inquiring about its continued necessity.\n* The topic is currently open for discussion and decision.",
         "decisions": [],
-        "actionItems": [],
+        "actionItems": [
+          {
+            "owner": "Hafiz (Room)",
+            "task": "still open: do we still need the Saturday on-call rota?",
+            "due": ""
+          }
+        ],
         "openQuestions": [
           "do we still need the Saturday on-call rota?"
         ],
-        "extracted": true
+        "extracted": true,
+        "agenda": {
+          "discussed": [
+            "Weekend on-call rota"
+          ],
+          "decided": [
+            "Weekend on-call rota"
+          ]
+        }
       }
     ]
   },
-  "note": "Speaker names (roadmap #4), Chrome 157. Two earlier runs with the prompt listing \"I will\" before \"<name> will\": owner 1.0 both, actionRecall 0.94 both. Before #4 (rolling only): {\"samples\":6,\"errors\":0,\"recall\":0.89,\"actionRecall\":1,\"owner\":0.6,\"due\":0.94,\"extra\":4,\"traps\":0,\"summary\":0.93,\"seconds\":601}. Rolling-window pipeline (#2), placeholder-only extraction prompt. Previous baseline (single pass, v0.1): recall 93%, owners 100%, due 100%, summary 93%, long meeting 50%."
+  "note": "Agenda tracker (roadmap #5) with groundCheck incl. the whole-title line match, Chrome 157. Previous run without the line match: {\"samples\":6,\"errors\":0,\"recall\":0.86,\"actionRecall\":0.94,\"owner\":0.86,\"due\":1,\"extra\":6,\"traps\":0,\"summary\":1,\"agenda\":0.93,\"seconds\":734}. malaysian-names hit a transient Prompt API \"kErrorUnknown\" and was re-run alone. Before #5: {\"samples\":6,\"errors\":0,\"recall\":0.89,\"actionRecall\":1,\"owner\":0.8,\"due\":1,\"extra\":10,\"traps\":0,\"summary\":0.93,\"seconds\":701}. Speaker names (roadmap #4), Chrome 157. Two earlier runs with the prompt listing \"I will\" before \"<name> will\": owner 1.0 both, actionRecall 0.94 both. Before #4 (rolling only): {\"samples\":6,\"errors\":0,\"recall\":0.89,\"actionRecall\":1,\"owner\":0.6,\"due\":0.94,\"extra\":4,\"traps\":0,\"summary\":0.93,\"seconds\":601}. Rolling-window pipeline (#2), placeholder-only extraction prompt. Previous baseline (single pass, v0.1): recall 93%, owners 100%, due 100%, summary 93%, long meeting 50%."
 }

@@ -86,7 +86,7 @@ Six samples in `test/evals/samples/`, scorer in `src/eval/score.ts`, runner at `
 
 ## Round 2: make it stand out
 
-**Build order (agreed 2026-11-22):** #2 ✅ → #4 Speaker names ✅ → #1 Duplicate lines ✅ → #5 Agenda tracker → #11 Glossary → #12 Slide-aware notes. Each feature gets its own commit.
+**Build order (agreed 2026-11-22):** #2 ✅ → #4 Speaker names ✅ → #1 Duplicate lines ✅ → #5 Agenda tracker ✅ → #11 Glossary → #12 Slide-aware notes. Each feature gets its own commit.
 
 Other ideas from the same brainstorm, not yet scheduled: open existing recordings or transcripts (File Handling / Share Target), "someone said your name" alerts (Notifications + Badging), action items across meetings, ask by voice with a spoken answer, live interpreting into earphones, chapters with an optional local recording, whiteboard photo into the minutes, Writer/Rewriter follow-up email, slowing background work when the CPU is under pressure.
 
@@ -119,11 +119,29 @@ Other ideas from the same brainstorm, not yet scheduled: open existing recording
 - **Limit:** names come from what people say, not their voices. Several people on one source share the last name heard until the next introduction.
 - **Later:** use voice differences (pitch/energy) to split speakers on one source. Research needed.
 
-### 5. Agenda tracker · size M
-- Paste or type the agenda before or at the start of the meeting.
-- Each window of segments is classified against the agenda items (Prompt API with a JSON schema) to tick off "discussed" and "decided".
-- Time-box nudges: "10 min left · 2 items not covered".
-- Uncovered items go into the minutes as open questions.
+### 5. Agenda tracker · ✅ done 2026-11-23
+**What was built** (`src/lib/agenda.ts`, `src/ui/agenda-panel.ts`):
+- **Agenda tab:** paste or type the agenda (one item per line; bullets and numbers are stripped) and an optional planned length. Items show as not yet, discussed or decided.
+- **Checked in the background:** each rolling minutes window also asks the Prompt API which agenda items it discussed or decided (JSON schema of item numbers). Editing the agenda re-checks the windows already drafted, as background work.
+- **Grounding (`groundCheck`):** Gemini Nano tends to fill the lists and under-calls "decided", so its answer is checked against what was said:
+  - an item only counts as discussed if that stretch shares a word with it;
+  - it also counts when one line holds every word of the title ("who signs off UAT?" for "UAT sign-off");
+  - a discussed item is decided when a decision or action item from the same stretch shares a word with it.
+- **Time box:** while live, "12 min left · 2 items not covered", plus a message at 10 min left and at time up while items are open.
+- **Minutes and export:** items nobody got to become open questions ("Agenda item not covered: …"); the Markdown and email export list the agenda with each status.
+- **Eval:** three samples have an agenda with expected statuses (`expect.agenda`); "discussed" also accepts "decided". The "not covered" questions are scored under agenda, not as extra open questions.
+
+**Results** (eval, Chrome 157, 14 agenda items in 3 samples):
+
+| | Model only | + grounding | + whole-title line match |
+|---|---|---|---|
+| Agenda items right | 9/14 (64%) | 13/14 (93%) | 13/14 (93%) |
+
+- **Model only:** it marked items nobody mentioned as discussed ("Staff training", "Office relocation", "Budget for next year"), and missed that "Old portal" and "SSL certificates" were decided.
+- **Remaining misses** are discussed-vs-decided calls: "Old VPN" when the extraction missed the VPN decision, or "FPX payment gateway" when its action item ("follow up with the bank") shares no word with the agenda title.
+- **In the demo** (Chrome 157): three items were ticked off within a minute of playing it, and "Staff training" stayed open and went into the minutes as an open question. Fixed on the way: the planned-length field rejected 30 (`step=5` from `min=1` allows only 1, 6, 11 …), the Agenda tab wasn't redrawn after Generate minutes, and a past meeting showed "min left".
+- **Limit:** an agenda title that shares no words with how people talk about it ("AOB", "Item 3") relies on the model alone.
+- **Seen while testing, not fixed here:** the extractor sometimes takes action items from the EARLIER CONTEXT lines, so the minutes repeat an item ("Wei Ming will follow up with the bank today"). Long-meeting chatter is also still returned as decisions in some runs (up to 10 in one run).
 
 ### 6. Teams / Zoom desktop apps · ✅ done 2026-11-22
 Clicking the remote-captions button now asks **"Where is your meeting?"**: in a browser tab, or in the Teams/Zoom app. Each choice explains what to pick in Chrome's share picker, opens the picker on the matching tab (`displaySurface` hint), and is remembered. The desktop-app choice uses an entire-screen share with system audio.

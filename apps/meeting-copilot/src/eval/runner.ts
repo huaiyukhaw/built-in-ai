@@ -2,6 +2,7 @@
 // on-device models and scores the result. Compare against test/evals/results/baseline.json
 // before merging prompt or pipeline changes.
 import '@fontsource-variable/google-sans-flex/wght.css';
+import { agendaStatus } from '../lib/agenda';
 import '../styles/tokens.css';
 import '../styles/components.css';
 import { Assistant } from '../lib/assistant';
@@ -131,9 +132,9 @@ async function run() {
     try {
       const ws: MinutesWindow[] = [];
       windows[sample.id] = ws;
-      const m = await assistant.minutes(sampleSegments(sample), (msg) => { stages.push(msg); setStage(`${i + 1}/${selected.length} ${sample.id}: ${msg}`); }, ws);
+      const m = await assistant.minutes(sampleSegments(sample), (msg) => { stages.push(msg); setStage(`${i + 1}/${selected.length} ${sample.id}: ${msg}`); }, ws, sample.agenda);
       outputs[sample.id] = m;
-      scores.push(scoreMinutes(sample, m, performance.now() - t0, stages));
+      scores.push(scoreMinutes(sample, m, performance.now() - t0, stages, sample.agenda ? agendaStatus(sample.agenda, ws) : undefined));
     } catch (err) {
       const empty = { expected: 0, found: 0, missed: [], extra: [] };
       scores.push({ id: sample.id, ms: performance.now() - t0, stages, error: String(err), decisions: empty, openQuestions: empty,

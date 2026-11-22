@@ -1,6 +1,12 @@
+import { agendaStatus, type AgendaStatus } from './agenda';
 import type { Meeting } from './model';
 import { parseMarkdown, type Inline } from './markdown';
 import { clock, durationLabel, formatTranscript } from './transcript';
+
+const AGENDA_LABEL: Record<AgendaStatus, string> = { decided: 'decided', discussed: 'discussed', open: 'not covered' };
+
+/** Agenda items with their status, once minutes exist (statuses come from the minutes windows). */
+const agendaRows = (m: Meeting) => (m.agenda?.length && m.minutes ? agendaStatus(m.agenda, m.rolling).map((s, i) => ({ title: m.agenda![i], s })) : []);
 
 const dateLabel = (m: Meeting) =>
   new Date(m.startedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' });
@@ -9,6 +15,8 @@ export function toMarkdown(m: Meeting, { includeTranscript = true } = {}): strin
   const lines = [`# ${m.title}`, '', `_${dateLabel(m)} · ${durationLabel(m)}_`, ''];
   if (m.minutes) {
     lines.push('## Summary', m.minutes.summary.trim(), '');
+    const agenda = agendaRows(m);
+    if (agenda.length) lines.push('## Agenda', ...agenda.map((a) => `- [${a.s === 'open' ? ' ' : 'x'}] ${a.title} _(${AGENDA_LABEL[a.s]})_`), '');
     if (m.minutes.decisions.length) lines.push('## Decisions', ...m.minutes.decisions.map((d) => `- ${d}`), '');
     lines.push('## Action items');
     lines.push(...(m.minutes.actionItems.length
@@ -45,6 +53,10 @@ export function toHtml(m: Meeting, { includeTranscript = false } = {}): string {
   ];
   if (m.minutes) {
     parts.push(`<h3>Summary</h3>${markdownHtml(m.minutes.summary)}`);
+    const agenda = agendaRows(m);
+    if (agenda.length) {
+      parts.push(`<h3>Agenda</h3><ul>${agenda.map((a) => `<li>${a.s === 'open' ? '☐' : '☑'} ${esc(a.title)} <span style="color:#666">(${AGENDA_LABEL[a.s]})</span></li>`).join('')}</ul>`);
+    }
     if (m.minutes.decisions.length) parts.push(`<h3>Decisions</h3><ul>${m.minutes.decisions.map((d) => `<li>${esc(d)}</li>`).join('')}</ul>`);
     parts.push('<h3>Action items</h3>');
     parts.push(m.minutes.actionItems.length

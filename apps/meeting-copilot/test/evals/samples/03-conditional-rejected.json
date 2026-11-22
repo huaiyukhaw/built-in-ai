@@ -13,7 +13,9 @@
     ["tab", "Will do, I'll send the request this week."],
     ["mic", "One more: if the region move happens, we freeze deployments for that weekend."]
   ],
+  "agenda": ["Hosting move", "SMS vendor", "Office relocation"],
   "expect": {
+    "agenda": ["decided", "decided", "open"],
     "decisions": [
       { "keys": ["region|cloud|hosting", "load|2000|two thousand"] },
       { "keys": ["sms|vendor", "current|existing|stay|keep|remain|continue"] },

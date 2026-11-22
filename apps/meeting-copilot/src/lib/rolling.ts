@@ -54,7 +54,7 @@ export class RollingMinutes {
       const [next] = planWindows(m.segments, done, { ...this.windowing, now: this.now() });
       if (!next) return;
       try {
-        const w = await this.gate.background((signal) => this.assistant.processWindow(m.segments, next, signal));
+        const w = await this.gate.background((signal) => this.assistant.processWindow(m.segments, next, signal, m.agenda));
         // Generate minutes may have covered this range meanwhile.
         if ((m.rolling?.at(-1)?.to ?? 0) !== done || this.#stopped) continue;
         (m.rolling ??= []).push(w);

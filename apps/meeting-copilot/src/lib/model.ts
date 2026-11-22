@@ -37,6 +37,8 @@ export interface MinutesWindow {
   openQuestions: string[];
   /** false when the Prompt API wasn't available, so only the summary was made */
   extracted: boolean;
+  /** Agenda items this stretch talked about or settled, by title (only when the meeting has an agenda) */
+  agenda?: { discussed: string[]; decided: string[] };
 }
 
 export interface Meeting {
@@ -52,6 +54,10 @@ export interface Meeting {
   minutes?: Minutes;
   /** Rolling minutes windows, in order, covering segments from 0 without gaps */
   rolling?: MinutesWindow[];
+  /** Agenda items, in order */
+  agenda?: string[];
+  /** Planned length, for "10 min left · 2 items not covered" */
+  plannedMinutes?: number;
 }
 
 export const SPOKEN_LOCALES: { locale: string; label: string }[] = [

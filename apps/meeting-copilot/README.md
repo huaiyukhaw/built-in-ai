@@ -51,9 +51,9 @@ pnpm dev                        # serves http://localhost:5174/eval.html
 bash test/e2e/chrome.sh ai      # then open /eval.html in that window and press "Run evals"
 ```
 
-- **Samples:** `test/evals/samples/*.json` holds six transcripts: a plain meeting, remote speaker introductions, conditional and rejected decisions, a meeting with no action items, Malaysian names, and a long meeting (about 400 lines) that forces chunking. Each has expected decisions, action items (with owner and due date) and open questions, written as keyword lists.
-- **Scoring:** the scorer (`src/eval/score.ts`, unit-tested) matches keywords at word starts. It reports recall, owner and due accuracy, extra items, and "traps" (rejected proposals that came back as action items).
-- **Baseline:** download the JSON and save it as `test/evals/results/baseline.json`. The page then shows each new run's change against it. The current baseline is the rolling-window pipeline from 2026-11-23; ROADMAP.md #2 and #3 have both sets of numbers.
+- **Samples:** `test/evals/samples/*.json` holds six transcripts: a plain meeting, remote speaker introductions, conditional and rejected decisions, a meeting with no action items, Malaysian names, and a long meeting (about 400 lines) that forces chunking. Each has expected decisions, action items (with owner and due date) and open questions, written as keyword lists. Three also have an agenda with the expected status of each item (decided, discussed or not covered).
+- **Scoring:** the scorer (`src/eval/score.ts`, unit-tested) matches keywords at word starts. It reports recall, owner and due accuracy, extra items, "traps" (rejected proposals that came back as action items), and agenda accuracy.
+- **Baseline:** download the JSON and save it as `test/evals/results/baseline.json`. The page then shows each new run's change against it. The current baseline is from the agenda tracker (2026-11-23); ROADMAP.md #2–#5 record each step's numbers.
 - **Options:** `?only=id1,id2` runs some samples only; `?autorun` starts at once. Results vary between runs, so treat a change of one item as noise.
 
 ## Features
@@ -69,6 +69,7 @@ bash test/e2e/chrome.sh ai      # then open /eval.html in that window and press 
 | Ask the meeting | Prompt API answers from the transcript and cites `[HH:MM:SS]` timestamps; long meetings keep the most recent context that fits |
 | Catch me up | Summarizer TL;DR of the last 2 / 5 / 10 minutes |
 | Minutes | Drafted in the background while you're live, ~3 minutes of talk at a time: Summarizer key points plus Prompt API JSON-schema extraction of decisions, action items and open questions. A **So far** list of action items grows in the Minutes tab. End or Generate minutes only reads the rest and merges (near-duplicates collapse; "Room"/"Remote" are never used as owners) |
+| Agenda | An Agenda tab: paste the agenda (one item per line) and, optionally, the planned length. Each background minutes window is checked against it with the Prompt API (JSON schema of item numbers), then checked against the words actually said (`groundCheck`). Items show as not yet, discussed or decided. While live, the tab shows "12 min left · 2 items not covered", and a message appears at 10 min left and at time up if items are still open. Items nobody got to go into the minutes as open questions, and the export lists the agenda with each status |
 | Sharing the model | One on-device model does everything, so background minutes wait while remote audio is being transcribed and stop at once when you ask a question (`ModelGate`) |
 | Export | Rich-HTML copy that pastes as formatted text with a table into Outlook/Teams; `.md` download; `mailto:` draft; Web Share |
 | History | IndexedDB, searchable across titles, transcripts, translations and minutes |
@@ -79,6 +80,7 @@ bash test/e2e/chrome.sh ai      # then open /eval.html in that window and press 
 ```
 src/
   lib/model.ts        Meeting / Segment types, language lists
+  lib/agenda.ts       agenda parsing, status, grounding, time box        (tested)
   lib/echo.ts         drop mic lines that echo remote speech             (tested)
   lib/speakers.ts     speaker names from introductions, rename           (tested)
   lib/transcript.ts   pure helpers: format, windowing, chunking, search   (tested)

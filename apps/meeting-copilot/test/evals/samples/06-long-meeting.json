@@ -11,17 +11,21 @@
     ["tab", "Grace will renew the SSL certificates before they expire on the twentieth."],
     ["mic", "Last thing, still open: do we still need the Saturday on-call rota?"]
   ],
+  "agenda": [
+    "Reporting database migration",
+    "Old VPN",
+    "SSL certificates",
+    "Weekend on-call rota",
+    "Budget for next year"
+  ],
   "expect": {
-    "decisions": [
-      { "keys": ["vpn", "june|1"] }
-    ],
+    "agenda": ["decided", "decided", "decided", "discussed", "open"],
+    "decisions": [{ "keys": ["vpn", "june|1"] }],
     "actionItems": [
       { "keys": ["database|migrat|reporting"], "owner": "Hafiz", "due": "month" },
       { "keys": ["ssl|certificate|cert"], "owner": "Grace", "due": "20|twentieth" }
     ],
-    "openQuestions": [
-      { "keys": ["on call|rota|saturday"] }
-    ],
+    "openQuestions": [{ "keys": ["on call|rota|saturday"] }],
     "summary": ["database|migration", "vpn"]
   }
 }

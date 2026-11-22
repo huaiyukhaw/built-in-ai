@@ -1,6 +1,7 @@
 // Scores Assistant.minutes() output against hand-written expectations (test/evals/samples/*.json).
 // Pure, so it runs in Vitest and in the eval runner page.
 import type { ActionItem, Minutes, Segment, SegmentSource } from '../lib/model';
+import type { AgendaStatus } from '../lib/agenda';
 import { labelSpeakers } from '../lib/speakers';
 
 /**
@@ -22,7 +23,11 @@ export interface Sample {
   lines: [SegmentSource, string][];
   /** Generic chatter lines spread between the real ones, to force chunking. */
   filler?: number;
+  /** Agenda entered for the meeting, checked against each window. */
+  agenda?: string[];
   expect: {
+    /** Status of each agenda item: "discussed" also accepts "decided". */
+    agenda?: AgendaStatus[];
     decisions: ExpectedItem[];
     actionItems: ExpectedAction[];
     openQuestions: ExpectedItem[];
@@ -59,6 +64,8 @@ export interface SampleScore {
   summaryHit: number;
   summaryTotal: number;
   traps: string[];
+  /** Agenda items given the right status; wrong ones as "title: got ≠ expected". */
+  agenda?: { total: number; ok: number; wrong: string[] };
   error?: string;
 }
 
@@ -132,7 +139,16 @@ export function scoreActions(produced: ActionItem[], expected: ExpectedAction[])
   };
 }
 
-export function scoreMinutes(sample: Sample, m: Minutes, ms = 0, stages: string[] = []): SampleScore {
+/** Open questions the app adds for uncovered agenda items; scored under agenda, not as extra questions. */
+export const AGENDA_QUESTION = /^Agenda item not covered: /;
+
+export function scoreAgenda(agenda: string[], expected: AgendaStatus[], got: AgendaStatus[]): NonNullable<SampleScore['agenda']> {
+  const okFor = (e: AgendaStatus, g: AgendaStatus) => (e === 'discussed' ? g !== 'open' : e === g);
+  const wrong = agenda.flatMap((t, i) => (okFor(expected[i], got[i] ?? 'open') ? [] : [`${t}: ${got[i] ?? 'open'} ≠ ${expected[i]}`]));
+  return { total: expected.length, ok: expected.length - wrong.length, wrong };
+}
+
+export function scoreMinutes(sample: Sample, m: Minutes, ms = 0, stages: string[] = [], agenda?: AgendaStatus[]): SampleScore {
   const x = sample.expect;
   const summaryKeys = x.summary ?? [];
   return {
@@ -141,10 +157,11 @@ export function scoreMinutes(sample: Sample, m: Minutes, ms = 0, stages: string[
     stages,
     decisions: scoreList(m.decisions, x.decisions),
     actionItems: scoreActions(m.actionItems, x.actionItems),
-    openQuestions: scoreList(m.openQuestions, x.openQuestions),
+    openQuestions: scoreList(m.openQuestions.filter((q) => !AGENDA_QUESTION.test(q)), x.openQuestions),
     summaryHit: summaryKeys.filter((k) => hasKey(m.summary, k)).length,
     summaryTotal: summaryKeys.length,
     traps: (x.forbidActions ?? []).flatMap((keys) => m.actionItems.filter((a) => matchesKeys(a.task, keys)).map(actionText)),
+    ...(sample.agenda && x.agenda ? { agenda: scoreAgenda(sample.agenda, x.agenda, agenda ?? []) } : {}),
   };
 }
 
@@ -158,6 +175,8 @@ export interface Totals {
   extra: number;
   traps: number;
   summary: number;
+  /** Agenda items given the right status */
+  agenda: number;
   seconds: number;
 }
 
@@ -177,6 +196,7 @@ export function totals(scores: SampleScore[]): Totals {
     extra: sum((s) => cats(s).reduce((n, c) => n + c.extra.length, 0)),
     traps: sum((s) => s.traps.length),
     summary: ratio(sum((s) => s.summaryHit), sum((s) => s.summaryTotal)),
+    agenda: ratio(sum((s) => s.agenda?.ok ?? 0), sum((s) => s.agenda?.total ?? 0)),
     seconds: Math.round(sum((s) => s.ms) / 1000),
   };
 }
