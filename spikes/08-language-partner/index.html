@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spike 8 · Speaking partner</title>
+  <link rel="stylesheet" href="../shared/style.css">
+  <style>
+    .fix-note { font-size: 0.85rem; border-inline-start: 3px solid var(--warn); padding-inline-start: 0.5rem; margin-block-start: 0.35rem; }
+    .suggest { display: flex; gap: 0.35rem; flex-wrap: wrap; margin-block-start: 0.35rem; }
+    .suggest button { font-size: 0.85rem; padding: 0.2rem 0.6rem; }
+    .bubble .tools { display: flex; gap: 0.25rem; margin-block-start: 0.25rem; }
+    .bubble .tools button { font-size: 0.75rem; padding: 0.1rem 0.45rem; }
+  </style>
+</head>
+<body>
+<main>
+  <p><a href="../">← All spikes</a></p>
+  <h1>Speaking partner</h1>
+  <p class="muted">
+    A spoken role-play conversation that runs offline. <strong>Prompt API</strong> plays the other person and returns JSON
+    (reply + grammar correction + suggested answers), <strong>speech synthesis</strong> speaks in a native voice,
+    <strong>Web Speech recognition</strong> hears your answer, and <strong>Translator</strong> explains lines in your own language on tap.
+    Prompt API output currently supports English, Spanish and Japanese.
+  </p>
+
+  <section class="card"><ul class="availability" id="avail"></ul></section>
+
+  <section class="card" style="margin-block-start:1rem">
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(11rem,1fr))">
+      <div><label for="target">Practise</label>
+        <select id="target">
+          <option value="en|en-US">English</option><option value="es|es-ES">Spanish</option><option value="ja|ja-JP">Japanese</option>
+        </select></div>
+      <div><label for="native">My language (for hints)</label>
+        <select id="native"><option value="zh">Chinese</option><option value="ta">Tamil</option><option value="id">Indonesian</option><option value="en">English</option><option value="ja">Japanese</option></select></div>
+      <div><label for="level">Level</label>
+        <select id="level"><option>beginner</option><option selected>intermediate</option><option>advanced</option></select></div>
+      <div><label for="scenario">Scenario</label>
+        <select id="scenario">
+          <option>a job interview for a software developer role</option>
+          <option>ordering food at a busy hawker stall</option>
+          <option>checking into a hotel and the booking is missing</option>
+          <option>explaining a project delay to an unhappy client</option>
+          <option>small talk with a new colleague on their first day</option>
+        </select></div>
+    </div>
+    <div class="row">
+      <button id="start">▶ Start conversation</button>
+      <button id="end" class="secondary" disabled>End &amp; get feedback</button>
+      <span id="privacy" class="badge"></span>
+    </div>
+    <progress id="progress" hidden aria-label="Model download"></progress>
+  </section>
+
+  <section class="card" style="margin-block-start:1rem">
+    <div id="chat" class="chat" aria-live="polite"></div>
+    <p id="heard" class="interim"></p>
+    <div class="row" style="flex-wrap:nowrap">
+      <button id="mic" class="mic" aria-pressed="false" disabled>🎙️ Hold to answer</button>
+      <label for="typed" style="position:absolute;clip-path:inset(50%)">Type your answer</label>
+      <input id="typed" placeholder="…or type your answer" disabled>
+      <button id="send" class="secondary" disabled>Send</button>
+    </div>
+    <div id="feedback" class="output" hidden></div>
+  </section>
+  <p id="status" class="status" role="status"></p>
+</main>
+
+<script type="module">
+  import { renderAvailability, createWithProgress, checkAvailability, streamInto, say } from '../shared/ai.js';
+  import { createRecognizer, hasRecognition, speak, privacyLabel } from '../shared/speech.js';
+
+  const $ = (id) => document.getElementById(id);
+  const status = $('status');
+  const ui = { progressEl: $('progress'), statusEl: status };
+  const fail = (err) => { say(status, err.message); status.classList.add('error'); };
+  renderAvailability($('avail'), ['LanguageModel', 'Translator']);
+
+  const target = () => { const [lang, locale] = $('target').value.split('|'); return { lang, locale, name: $('target').selectedOptions[0].text }; };
+  let session = null;
+  const translators = new Map();
+
+  const TURN_SCHEMA = {
+    type: 'object',
+    properties: {
+      reply: { type: 'string', description: 'Your next line in the role-play, in the practice language' },
+      correction: {
+        type: 'object',
+        properties: {
+          hadMistake: { type: 'boolean' },
+          corrected: { type: 'string', description: "The learner's last line, corrected" },
+          explanation: { type: 'string', description: 'Short explanation in English' },
+        },
+        required: ['hadMistake', 'corrected', 'explanation'], additionalProperties: false,
+      },
+      suggestions: { type: 'array', items: { type: 'string' }, maxItems: 3, description: 'Things the learner could say next' },
+    },
+    required: ['reply', 'correction', 'suggestions'], additionalProperties: false,
+  };
+
+  function bubble(who, text, extra) {
+    const div = document.createElement('div');
+    div.className = `bubble ${who}`;
+    const p = document.createElement('div');
+    p.textContent = text;
+    p.lang = target().lang;
+    div.append(p);
+    if (extra) div.append(extra);
+    $('chat').append(div);
+    div.scrollIntoView({ block: 'end', behavior: 'smooth' });
+    return div;
+  }
+
+  async function translateToNative(text) {
+    const src = target().lang, tgt = $('native').value;
+    if (src === tgt) return text;
+    const key = `${src}>${tgt}`;
+    if (!translators.has(key)) {
+      const a = await checkAvailability('Translator', { sourceLanguage: src, targetLanguage: tgt });
+      if (a === 'unavailable' || a === 'no-api') throw new Error('Translator does not support this language pair.');
+      translators.set(key, await createWithProgress('Translator', { sourceLanguage: src, targetLanguage: tgt }, ui));
+    }
+    return translators.get(key).translate(text);
+  }
+
+  function aiTools(text) {
+    const tools = document.createElement('div');
+    tools.className = 'tools';
+    const replay = document.createElement('button'); replay.className = 'secondary'; replay.textContent = '🔊 Replay';
+    replay.onclick = () => speak(text, target().locale, { rate: 0.9 });
+    const slow = document.createElement('button'); slow.className = 'secondary'; slow.textContent = '🐢 Slow';
+    slow.onclick = () => speak(text, target().locale, { rate: 0.6 });
+    const tr = document.createElement('button'); tr.className = 'secondary'; tr.textContent = '🌐 Translate';
+    tr.onclick = async () => {
+      try { const s = document.createElement('small'); s.textContent = await translateToNative(text); s.lang = $('native').value; tools.after(s); tr.disabled = true; }
+      catch (err) { fail(err); }
+    };
+    tools.append(replay, slow, tr);
+    return tools;
+  }
+
+  function showTurn(turn, myBubble) {
+    if (myBubble && turn.correction?.hadMistake) {
+      const note = document.createElement('div');
+      note.className = 'fix-note';
+      note.textContent = `✏️ ${turn.correction.corrected} — ${turn.correction.explanation}`;
+      myBubble.append(note);
+    }
+    const wrap = document.createDocumentFragment();
+    wrap.append(aiTools(turn.reply));
+    if (turn.suggestions?.length) {
+      const sug = document.createElement('div'); sug.className = 'suggest';
+      for (const s of turn.suggestions) {
+        const b = document.createElement('button'); b.className = 'secondary'; b.textContent = s; b.lang = target().lang;
+        b.onclick = () => { $('typed').value = s; };
+        sug.append(b);
+      }
+      wrap.append(sug);
+    }
+    bubble('ai', turn.reply, wrap);
+    speak(turn.reply, target().locale);
+  }
+
+  async function turn(text) {
+    status.classList.remove('error');
+    const mine = text ? bubble('me', text) : null;
+    try {
+      say(status, 'Thinking…');
+      const raw = await session.prompt(text || 'Start the role-play with your first line.', { responseConstraint: TURN_SCHEMA });
+      showTurn(JSON.parse(raw), mine);
+      say(status, `Context used: ${session.contextUsage ?? session.inputUsage ?? '?'} / ${session.contextWindow ?? session.inputQuota ?? '?'} tokens`);
+    } catch (err) { fail(err); }
+  }
+
+  $('start').addEventListener('click', async () => {
+    status.classList.remove('error');
+    const t = target();
+    try {
+      session?.destroy();
+      $('chat').replaceChildren(); $('feedback').hidden = true;
+      session = await createWithProgress('LanguageModel', {
+        initialPrompts: [{ role: 'system', content:
+          `You are a friendly ${t.name} conversation partner for a ${$('level').value} learner. ` +
+          `Role-play this scenario: ${$('scenario').value}. Play the other person, stay in character, and keep each reply to 1–2 short sentences in ${t.name}` +
+          `${$('level').value === 'beginner' ? ' using simple vocabulary' : ''}. Ask questions to keep the conversation going. ` +
+          `If the learner's last line has grammar or word-choice mistakes, fill in the correction; otherwise hadMistake is false and corrected is "".` }],
+        // Corrections and feedback are in English, so declare both languages.
+        expectedInputs: [{ type: 'text', languages: [...new Set([t.lang, 'en'])] }],
+        expectedOutputs: [{ type: 'text', languages: [...new Set([t.lang, 'en'])] }],
+      }, ui);
+      for (const id of ['mic', 'typed', 'send', 'end']) $(id).disabled = false;
+      if (!hasRecognition) $('mic').disabled = true;
+      await turn('');
+    } catch (err) { fail(err); }
+  });
+
+  $('send').addEventListener('click', () => { const v = $('typed').value.trim(); if (v) { $('typed').value = ''; turn(v); } });
+  $('typed').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('send').click(); });
+
+  // Push-to-talk in the practice language.
+  let rec = null, heard = '';
+  async function startTalk() {
+    try {
+      speechSynthesis?.cancel();
+      const r = await createRecognizer({ lang: target().locale });
+      rec = r.rec; heard = '';
+      say($('privacy'), privacyLabel(r.local));
+      rec.onresult = (e) => { heard = [...e.results].map((x) => x[0].transcript).join(' '); $('heard').textContent = heard; };
+      rec.start();
+      $('mic').setAttribute('aria-pressed', 'true');
+    } catch (err) { fail(err); }
+  }
+  function endTalk() {
+    if (!rec) return;
+    const r = rec; rec = null;
+    $('mic').setAttribute('aria-pressed', 'false');
+    r.onend = () => { $('heard').textContent = ''; if (heard.trim()) turn(heard.trim()); };
+    r.stop();
+  }
+  $('mic').addEventListener('pointerdown', (e) => { $('mic').setPointerCapture(e.pointerId); startTalk(); });
+  $('mic').addEventListener('pointerup', endTalk);
+  $('mic').addEventListener('pointercancel', endTalk);
+  $('mic').addEventListener('keydown', (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); startTalk(); } });
+  $('mic').addEventListener('keyup', (e) => { if (e.key === ' ' || e.key === 'Enter') endTalk(); });
+
+  $('end').addEventListener('click', async () => {
+    try {
+      $('feedback').hidden = false;
+      // Clone so the feedback request doesn't pollute the role-play session.
+      const s = await session.clone();
+      await streamInto($('feedback'), s.promptStreaming(
+        'Step out of character. In English, give the learner feedback on this conversation: a fluency score out of 5, ' +
+        'three things they did well, their three most important mistakes with corrections, and two phrases to practise next. Use short Markdown bullets.'));
+      s.destroy();
+    } catch (err) { fail(err); }
+  });
+</script>
+</body>
+</html>

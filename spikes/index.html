@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Built-in AI spikes</title>
+  <link rel="stylesheet" href="shared/style.css">
+</head>
+<body>
+<main>
+  <h1>Chrome built-in AI — spikes</h1>
+  <p class="muted">Each spike runs entirely on-device with Gemini Nano in Chrome. No API keys, no server, no data leaves the browser.</p>
+
+  <section class="card">
+    <h2>What does this browser support?</h2>
+    <ul class="availability" id="avail"><li>Checking…</li></ul>
+    <p class="status">
+      <code>no-api</code> = global missing (wrong browser or flag off) ·
+      <code>downloadable</code> = works after a one-time model download ·
+      <code>available</code> = ready now.
+    </p>
+  </section>
+
+  <h2>Creative builds: built-in AI + other browser APIs</h2>
+  <div class="grid">
+    <article class="card">
+      <h3><a href="05-meeting-copilot/">5 · Meeting Copilot</a></h3>
+      <p>Live captions translated into your language, in a floating window that stays on top of Teams or Zoom. Ends with minutes and an action-item table you can share.</p>
+      <p class="muted">Web Speech · Translator · Document PiP · Summarizer · Prompt API · Web Share</p>
+    </article>
+    <article class="card">
+      <h3><a href="06-voice-inspection/">6 · Hands-free site inspection</a></h3>
+      <p>Hold to talk and the report fills itself, corrections included. Snap a photo and the AI lists the visible defects. GPS stamp, spoken read-back.</p>
+      <p class="muted">Web Speech · Prompt API (JSON + vision) · getUserMedia · Geolocation · Speech synthesis · Web Share</p>
+    </article>
+    <article class="card">
+      <h3><a href="07-screen-buddy/">7 · Screen Buddy</a></h3>
+      <p>Share any window and ask "what does this error mean?" by voice. Floats over your IDE or ERP; watch mode warns you when an error dialog appears.</p>
+      <p class="muted">Screen Capture · Prompt API (vision) · Document PiP · Web Speech</p>
+    </article>
+    <article class="card">
+      <h3><a href="08-language-partner/">8 · Speaking partner</a></h3>
+      <p>A spoken role-play conversation (job interview, hawker stall, angry client) with inline grammar fixes, suggested replies and tap-to-translate. Runs offline.</p>
+      <p class="muted">Prompt API · Web Speech (both ways) · Translator</p>
+    </article>
+  </div>
+
+  <h2>Basics: one API each</h2>
+  <div class="grid">
+    <article class="card">
+      <h3><a href="01-multilingual-inbox/">1 · Multilingual support inbox</a></h3>
+      <p>Customer writes in Malay / Chinese / Tamil / anything. Detect language, translate to English for the agent, translate the reply back.</p>
+      <p class="muted">Language Detector + Translator · stable</p>
+    </article>
+    <article class="card">
+      <h3><a href="02-smart-form-fill/">2 · Smart form fill (text → structured data)</a></h3>
+      <p>Paste an email or receipt text (or drop a photo); Prompt API with a JSON Schema constraint fills a leave/expense form.</p>
+      <p class="muted">Prompt API · responseConstraint · optional image input</p>
+    </article>
+    <article class="card">
+      <h3><a href="03-summarize/">3 · Summarize long content</a></h3>
+      <p>Meeting notes, ticket threads, or customer reviews → TL;DR, key points, headline. Streams as it generates.</p>
+      <p class="muted">Summarizer API · stable</p>
+    </article>
+    <article class="card">
+      <h3><a href="04-writing-assistant/">4 · Writing assistant in a textarea</a></h3>
+      <p>Proofread with inline diffs, rewrite (more formal / shorter), or draft from a one-line idea.</p>
+      <p class="muted">Proofreader + Rewriter + Writer · developer trial (flags)</p>
+    </article>
+  </div>
+</main>
+<script type="module">
+  import { renderAvailability } from './shared/ai.js';
+  renderAvailability(document.getElementById('avail'));
+</script>
+</body>
+</html>

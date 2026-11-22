@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spike 2 · Smart form fill</title>
+  <link rel="stylesheet" href="../shared/style.css">
+</head>
+<body>
+<main>
+  <p><a href="../">← All spikes</a></p>
+  <h1>Smart form fill</h1>
+  <p class="muted">Paste free text (or drop a receipt photo). The Prompt API is forced to answer with JSON matching a schema (<code>responseConstraint</code>), which then fills a normal form the user reviews before submitting.</p>
+
+  <section class="card">
+    <ul class="availability" id="avail"></ul>
+  </section>
+
+  <div class="grid" style="margin-block-start:1rem">
+    <section class="card">
+      <h2>1 · Source</h2>
+      <label for="mode">Form type</label>
+      <select id="mode">
+        <option value="leave">Leave request</option>
+        <option value="expense">Expense claim</option>
+      </select>
+      <div class="row">
+        <button class="secondary" id="sample">Load sample text</button>
+      </div>
+      <label for="source">Free text (email, chat message, receipt OCR…)</label>
+      <textarea id="source"></textarea>
+      <label for="image">…or a receipt photo (needs image input support)</label>
+      <input type="file" id="image" accept="image/*">
+      <div class="row"><button id="extract">Extract into form</button></div>
+      <label for="progress">Model download</label>
+      <progress id="progress" hidden></progress>
+      <details>
+        <summary>Raw JSON from the model</summary>
+        <pre id="raw" class="output"></pre>
+      </details>
+    </section>
+
+    <section class="card">
+      <h2>2 · Review &amp; submit</h2>
+      <form id="leaveForm">
+        <label for="l-type">Leave type</label>
+        <select id="l-type" name="leaveType">
+          <option>annual</option><option>medical</option><option>emergency</option><option>unpaid</option><option>other</option>
+        </select>
+        <label for="l-start">Start date</label><input id="l-start" name="startDate" type="date">
+        <label for="l-end">End date</label><input id="l-end" name="endDate" type="date">
+        <label for="l-half">Half day?</label>
+        <select id="l-half" name="halfDay"><option value="none">No</option><option value="am">AM</option><option value="pm">PM</option></select>
+        <label for="l-reason">Reason</label><input id="l-reason" name="reason">
+        <label for="l-cover">Handover to</label><input id="l-cover" name="coverPerson">
+      </form>
+      <form id="expenseForm" hidden>
+        <label for="e-merchant">Merchant</label><input id="e-merchant" name="merchant">
+        <label for="e-date">Date</label><input id="e-date" name="date" type="date">
+        <label for="e-cat">Category</label>
+        <select id="e-cat" name="category"><option>meals</option><option>transport</option><option>accommodation</option><option>parking</option><option>office</option><option>other</option></select>
+        <label for="e-cur">Currency</label><input id="e-cur" name="currency" maxlength="3">
+        <label for="e-total">Total</label><input id="e-total" name="total" type="number" step="0.01">
+        <label for="e-tax">Tax (SST)</label><input id="e-tax" name="tax" type="number" step="0.01">
+        <label for="e-purpose">Business purpose</label><input id="e-purpose" name="purpose">
+      </form>
+      <p class="muted">Fields filled by AI are highlighted until you edit them. A human always submits.</p>
+    </section>
+  </div>
+  <p id="status" class="status" role="status"></p>
+</main>
+
+<style>
+  .ai-filled { outline: 2px solid var(--accent); outline-offset: 1px; }
+</style>
+
+<script type="module">
+  import { renderAvailability, createWithProgress, say } from '../shared/ai.js';
+
+  const $ = (id) => document.getElementById(id);
+  const status = $('status');
+  const today = new Date().toISOString().slice(0, 10);
+
+  const MODES = {
+    leave: {
+      form: 'leaveForm',
+      sample: `Hi boss, my kid is down with fever so I need to take medical leave this Thursday and Friday. I'll be back on Monday. Ahmad can cover the client call on Friday afternoon. Thanks!`,
+      schema: {
+        type: 'object',
+        properties: {
+          leaveType: { type: 'string', enum: ['annual', 'medical', 'emergency', 'unpaid', 'other'] },
+          startDate: { type: 'string', description: 'YYYY-MM-DD' },
+          endDate: { type: 'string', description: 'YYYY-MM-DD' },
+          halfDay: { type: 'string', enum: ['none', 'am', 'pm'] },
+          reason: { type: 'string' },
+          coverPerson: { type: 'string' },
+        },
+        required: ['leaveType', 'startDate', 'endDate', 'halfDay', 'reason', 'coverPerson'],
+        additionalProperties: false,
+      },
+      system: `You extract leave requests into JSON. Today is ${today} (${new Date().toLocaleDateString('en', { weekday: 'long' })}). Resolve relative dates like "this Thursday" to YYYY-MM-DD. Use "" for unknown strings.`,
+    },
+    expense: {
+      form: 'expenseForm',
+      sample: `NASI KANDAR PELITA\nJalan Ampang, Kuala Lumpur\n12/11/2026  13:42\n2x Nasi Kandar Ayam    RM 27.80\n2x Teh Tarik           RM  6.40\nSubtotal               RM 34.20\nSST 6%                 RM  2.05\nTOTAL                  RM 36.25\nLunch with client from Acme re: Q1 renewal`,
+      schema: {
+        type: 'object',
+        properties: {
+          merchant: { type: 'string' },
+          date: { type: 'string', description: 'YYYY-MM-DD' },
+          category: { type: 'string', enum: ['meals', 'transport', 'accommodation', 'parking', 'office', 'other'] },
+          currency: { type: 'string', description: 'ISO 4217, e.g. MYR' },
+          total: { type: 'number' },
+          tax: { type: 'number' },
+          purpose: { type: 'string' },
+        },
+        required: ['merchant', 'date', 'category', 'currency', 'total', 'tax', 'purpose'],
+        additionalProperties: false,
+      },
+      system: `You extract expense receipts into JSON. Today is ${today}. Dates on Malaysian receipts are DD/MM/YYYY; output YYYY-MM-DD. "RM" means currency MYR. Use 0 for unknown numbers and "" for unknown strings.`,
+    },
+  };
+
+  renderAvailability($('avail'), ['LanguageModel']);
+
+  const sessions = {}; // one base session per mode; clone() per request keeps each extraction independent
+  const mode = () => MODES[$('mode').value];
+
+  $('mode').addEventListener('change', () => {
+    for (const k of Object.keys(MODES)) $(MODES[k].form).hidden = k !== $('mode').value;
+  });
+  $('sample').addEventListener('click', () => { $('source').value = mode().sample; });
+  document.addEventListener('input', (e) => e.target.classList?.remove('ai-filled'));
+
+  async function getSession(key, withImage) {
+    const id = `${key}:${withImage}`;
+    if (!sessions[id]) {
+      const expectedInputs = [{ type: 'text', languages: ['en'] }];
+      if (withImage) expectedInputs.push({ type: 'image' });
+      sessions[id] = await createWithProgress('LanguageModel', {
+        initialPrompts: [{ role: 'system', content: MODES[key].system }],
+        expectedInputs,
+        expectedOutputs: [{ type: 'text', languages: ['en'] }],
+      }, { progressEl: $('progress'), statusEl: status });
+    }
+    return sessions[id].clone();
+  }
+
+  $('extract').addEventListener('click', async () => {
+    status.classList.remove('error');
+    const key = $('mode').value;
+    const file = $('image').files[0];
+    const text = $('source').value.trim();
+    if (!text && !file) return say(status, 'Paste some text or choose an image first.');
+
+    try {
+      const session = await getSession(key, Boolean(file));
+      say(status, 'Extracting…');
+      const t0 = performance.now();
+      const input = file
+        ? [{ role: 'user', content: [
+            { type: 'text', value: `Extract the fields from this receipt image.${text ? ' Extra context: ' + text : ''}` },
+            { type: 'image', value: file },
+          ] }]
+        : `Extract the fields from:\n"""${text}"""`;
+      const raw = await session.prompt(input, { responseConstraint: MODES[key].schema });
+      session.destroy();
+      $('raw').textContent = raw;
+      const data = JSON.parse(raw);
+      const form = $(MODES[key].form);
+      for (const [name, value] of Object.entries(data)) {
+        const field = form.elements.namedItem(name);
+        if (!field || value === '' || value === null) continue;
+        field.value = value;
+        field.classList.add('ai-filled');
+      }
+      say(status, `Filled ${Object.keys(data).length} fields in ${((performance.now() - t0) / 1000).toFixed(1)}s — please review.`);
+    } catch (err) {
+      say(status, err.message); status.classList.add('error');
+    }
+  });
+</script>
+</body>
+</html>

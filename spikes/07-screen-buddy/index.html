@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spike 7 · Screen Buddy</title>
+  <link rel="stylesheet" href="../shared/style.css">
+  <style>
+    #buddy { display: grid; gap: 0.5rem; align-content: start; }
+    body.in-pip #buddy video { max-block-size: 30vh; object-fit: contain; }
+    body.in-pip #buddy .hide-in-pip { display: none; }
+    .chips { display: flex; gap: 0.35rem; flex-wrap: wrap; }
+    .chips button { font-size: 0.85rem; padding: 0.25rem 0.6rem; }
+  </style>
+</head>
+<body>
+<main>
+  <p><a href="../">← All spikes</a></p>
+  <h1>Screen Buddy</h1>
+  <p class="muted">
+    Share any window (Studio Pro, an ERP screen, a stack trace), then ask by voice or text.
+    <strong>Screen Capture</strong> grabs the current frame → <strong>Prompt API</strong> (image input) answers about what is on screen →
+    optional <strong>speech synthesis</strong> reads it out. Pop it into <strong>Document Picture-in-Picture</strong> and it floats over the app you're working in.
+    Frames are processed on-device and never uploaded.
+  </p>
+
+  <section class="card hide-in-pip"><ul class="availability" id="avail"></ul></section>
+
+  <section class="card" id="buddy" style="margin-block-start:1rem">
+    <div class="row">
+      <button id="share">🖥️ Share a window</button>
+      <button id="popout" class="secondary">⧉ Float over other apps</button>
+      <button id="watch" class="secondary" aria-pressed="false" disabled>👀 Watch for errors</button>
+    </div>
+    <video id="video" playsinline muted hidden></video>
+    <div class="chips">
+      <button class="secondary" data-q="What is on this screen? Summarize in 3 bullets.">What's this?</button>
+      <button class="secondary" data-q="Is there an error or warning visible? Explain what it means and how to fix it.">Explain the error</button>
+      <button class="secondary" data-q="Extract every visible table or list as Markdown.">Grab the table</button>
+      <button class="secondary" data-q="Translate all visible text into English.">Translate screen</button>
+      <button class="secondary" data-q="Review this UI for accessibility and usability problems. List the top 5.">UX review</button>
+    </div>
+    <div class="row" style="flex-wrap:nowrap">
+      <label for="q" class="visually-hidden" style="position:absolute;clip-path:inset(50%)">Question</label>
+      <input id="q" placeholder="Ask about the screen…">
+      <button id="mic" class="mic secondary" aria-pressed="false" aria-label="Ask by voice">🎙️</button>
+      <button id="ask" disabled>Ask</button>
+    </div>
+    <label style="margin:0;display:flex;gap:.4rem;align-items:center;font-weight:400"><input type="checkbox" id="speakOut" style="inline-size:auto"> Read answers aloud</label>
+    <div id="answer" class="output" aria-live="polite"></div>
+    <progress id="progress" hidden aria-label="Model download"></progress>
+    <p id="status" class="status" role="status"></p>
+  </section>
+</main>
+
+<script type="module">
+  import { renderAvailability, createWithProgress, streamInto, say } from '../shared/ai.js';
+  import { createRecognizer, listenOnce, hasRecognition, speak } from '../shared/speech.js';
+  import { popOut, hasDocumentPiP } from '../shared/pip.js';
+
+  const $ = (id) => document.getElementById(id);
+  const status = $('status');
+  const ui = { progressEl: $('progress'), statusEl: status };
+  const fail = (err) => { say(status, err.message); status.classList.add('error'); };
+  renderAvailability($('avail'), ['LanguageModel']);
+  if (!hasDocumentPiP) $('popout').disabled = true;
+  if (!hasRecognition) $('mic').disabled = true;
+
+  let base, stream, busy = false;
+  async function session() {
+    base ??= await createWithProgress('LanguageModel', {
+      initialPrompts: [{ role: 'system', content: 'You are a concise desktop assistant. You see a screenshot of the user\'s screen and answer their question about it. Be specific about what you can see; say so if text is unreadable.' }],
+      expectedInputs: [{ type: 'text', languages: ['en'] }, { type: 'image' }],
+      expectedOutputs: [{ type: 'text', languages: ['en'] }],
+    }, ui);
+    return base.clone();
+  }
+
+  // Downscale frames: smaller images are faster and still readable for UI text.
+  async function grabFrame(maxWidth = 1280) {
+    const v = $('video');
+    const scale = Math.min(1, maxWidth / v.videoWidth);
+    const c = new OffscreenCanvas(Math.round(v.videoWidth * scale), Math.round(v.videoHeight * scale));
+    c.getContext('2d').drawImage(v, 0, 0, c.width, c.height);
+    return c.convertToBlob({ type: 'image/png' });
+  }
+
+  $('share').addEventListener('click', async () => {
+    status.classList.remove('error');
+    try {
+      stream = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 5 }, audio: false });
+      $('video').srcObject = stream; $('video').hidden = false; await $('video').play();
+      stream.getVideoTracks()[0].addEventListener('ended', () => { $('ask').disabled = true; $('watch').disabled = true; $('video').hidden = true; });
+      $('ask').disabled = false; $('watch').disabled = false;
+      session().catch(fail); // start model warm-up while the user picks a question
+    } catch (err) { fail(err); }
+  });
+
+  async function ask(question) {
+    if (!stream || busy || !question) return;
+    busy = true; status.classList.remove('error');
+    try {
+      const frame = await grabFrame();
+      const s = await session();
+      say(status, 'Looking…');
+      const t0 = performance.now();
+      const answer = await streamInto($('answer'), s.promptStreaming([{ role: 'user', content: [
+        { type: 'text', value: question }, { type: 'image', value: frame },
+      ] }]));
+      s.destroy();
+      say(status, `Answered in ${((performance.now() - t0) / 1000).toFixed(1)}s.`);
+      if ($('speakOut').checked) speak(answer.replace(/[#*_`>-]/g, ''));
+      return answer;
+    } catch (err) { fail(err); } finally { busy = false; }
+  }
+
+  document.querySelectorAll('[data-q]').forEach((b) => b.addEventListener('click', () => { $('q').value = b.dataset.q; ask(b.dataset.q); }));
+  $('ask').addEventListener('click', () => ask($('q').value.trim()));
+  $('q').addEventListener('keydown', (e) => { if (e.key === 'Enter') ask($('q').value.trim()); });
+
+  $('mic').addEventListener('click', async () => {
+    try {
+      $('mic').setAttribute('aria-pressed', 'true');
+      const { rec } = await createRecognizer({ lang: 'en-US' });
+      const q = await listenOnce(rec);
+      $('mic').setAttribute('aria-pressed', 'false');
+      if (q) { $('q').value = q; ask(q); }
+    } catch (err) { $('mic').setAttribute('aria-pressed', 'false'); fail(err); }
+  });
+
+  $('popout').addEventListener('click', () => popOut($('buddy'), { width: 420, height: 560 }).catch(fail));
+
+  // Watch mode: every 10 s, ask a yes/no question with a JSON schema; only speak up when something is wrong.
+  let watchTimer = null;
+  $('watch').addEventListener('click', () => {
+    const on = $('watch').getAttribute('aria-pressed') !== 'true';
+    $('watch').setAttribute('aria-pressed', String(on));
+    clearInterval(watchTimer);
+    if (!on) return say(status, 'Stopped watching.');
+    say(status, 'Watching the shared window for error dialogs…');
+    let lastAlert = '';
+    watchTimer = setInterval(async () => {
+      if (busy || !stream) return;
+      busy = true;
+      try {
+        const s = await session();
+        const raw = await s.prompt([{ role: 'user', content: [
+          { type: 'text', value: 'Is an error message, failed build, exception or warning dialog visible? If so, give a one-sentence plain-English explanation.' },
+          { type: 'image', value: await grabFrame(960) },
+        ] }], { responseConstraint: { type: 'object', properties: { hasError: { type: 'boolean' }, explanation: { type: 'string' } }, required: ['hasError', 'explanation'], additionalProperties: false } });
+        s.destroy();
+        const { hasError, explanation } = JSON.parse(raw);
+        if (hasError && explanation !== lastAlert) {
+          lastAlert = explanation;
+          $('answer').textContent = `⚠️ ${explanation}`;
+          if ($('speakOut').checked) speak(explanation);
+        }
+      } catch (err) { console.warn(err); } finally { busy = false; }
+    }, 10000);
+  });
+</script>
+</body>
+</html>

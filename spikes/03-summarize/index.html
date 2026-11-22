@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spike 3 · Summarize long content</title>
+  <link rel="stylesheet" href="../shared/style.css">
+</head>
+<body>
+<main>
+  <p><a href="../">← All spikes</a></p>
+  <h1>Summarize long content</h1>
+  <p class="muted">Summarizer API with selectable type / length / format, streamed. Long input uses the "summary of summaries" technique when it exceeds the model's input quota.</p>
+
+  <section class="card"><ul class="availability" id="avail"></ul></section>
+
+  <div class="grid" style="margin-block-start:1rem">
+    <section class="card">
+      <h2>Input</h2>
+      <div class="row">
+        <button class="secondary" data-sample="meeting">Meeting transcript</button>
+        <button class="secondary" data-sample="reviews">Customer reviews</button>
+      </div>
+      <label for="source">Text</label>
+      <textarea id="source"></textarea>
+      <div class="grid" style="grid-template-columns:repeat(3,1fr);gap:.5rem">
+        <div><label for="type">Type</label>
+          <select id="type"><option>key-points</option><option>tldr</option><option>teaser</option><option>headline</option></select></div>
+        <div><label for="length">Length</label>
+          <select id="length"><option>short</option><option selected>medium</option><option>long</option></select></div>
+        <div><label for="format">Format</label>
+          <select id="format"><option>markdown</option><option>plain-text</option></select></div>
+      </div>
+      <label for="context">Shared context (optional)</label>
+      <input id="context" placeholder="e.g. Audience: project manager who missed the meeting">
+      <div class="row"><button id="go">Summarize</button></div>
+      <label for="progress">Model download</label>
+      <progress id="progress" hidden></progress>
+    </section>
+    <section class="card">
+      <h2>Summary</h2>
+      <div id="out" class="output"></div>
+      <p id="meta" class="status"></p>
+    </section>
+  </div>
+  <p id="status" class="status" role="status"></p>
+</main>
+
+<script type="module">
+  import { renderAvailability, createWithProgress, streamInto, say } from '../shared/ai.js';
+  const $ = (id) => document.getElementById(id);
+  const status = $('status');
+
+  const SAMPLES = {
+    meeting: `Sarah: Okay let's start. Main agenda is the Q1 rollout of the customer portal.
+Wei Ming: Backend is mostly done. The payment gateway integration with FPX is still failing in UAT because of a certificate issue. Bank says they'll send the new cert by Wednesday.
+Sarah: That's a blocker. If we don't have it by Wednesday we push the go-live from 3 Feb to 10 Feb.
+Priya: On the frontend, accessibility audit came back with 14 issues, mostly colour contrast and missing labels on the claims form. I can fix them by end of next week.
+Sarah: Good. Ahmad, what about data migration?
+Ahmad: Migrated 80% of customer records. The remaining 20% have duplicate IC numbers that need manual review. I need two people from ops for three days.
+Sarah: I'll talk to the ops manager today. Anything else?
+Wei Ming: We should also decide whether to keep the old portal read-only for 3 months. Legal wants at least 6 months.
+Sarah: Let's go with 6 months then, to be safe. Action items: Wei Ming chases the bank cert, Priya fixes accessibility issues, Ahmad gets ops support, I'll confirm with legal and update the steering committee on Friday.`,
+    reviews: `★★★★★ Delivery was super fast, arrived next day in Penang. Packaging solid.
+★★☆☆☆ Product is ok but the charger stopped working after 2 weeks. Customer service took 5 days to reply.
+★★★★☆ Good value for the price. Battery lasts about 2 days with normal use. Wish it came in more colours.
+★☆☆☆☆ Received the wrong colour and the return process is confusing. Had to print a label myself.
+★★★★★ Excellent screen, very bright even outdoors. Setup was easy.
+★★★☆☆ Battery is great but the app keeps logging me out. Syncing with my phone is unreliable.
+★★★★☆ Fast shipping, the strap is comfortable. The app needs work though.
+★★☆☆☆ Charger cable is too short and feels cheap. Device itself is fine.`,
+  };
+  document.querySelectorAll('[data-sample]').forEach((b) =>
+    b.addEventListener('click', () => { $('source').value = SAMPLES[b.dataset.sample]; }));
+
+  renderAvailability($('avail'), ['Summarizer']);
+
+  // Summarizers are configured at creation time, so cache one per option combination.
+  const cache = new Map();
+  async function getSummarizer(opts) {
+    const key = JSON.stringify(opts);
+    if (!cache.has(key)) cache.set(key, await createWithProgress('Summarizer', opts, { progressEl: $('progress'), statusEl: status }));
+    return cache.get(key);
+  }
+
+  // Split on paragraph boundaries into chunks that fit the input quota.
+  async function chunkToFit(summarizer, text) {
+    const paras = text.split(/\n{2,}|\n/);
+    const chunks = [];
+    let current = '';
+    for (const p of paras) {
+      const candidate = current ? `${current}\n${p}` : p;
+      if (current && (await summarizer.measureInputUsage(candidate)) > summarizer.inputQuota * 0.9) {
+        chunks.push(current); current = p;
+      } else current = candidate;
+    }
+    if (current) chunks.push(current);
+    return chunks;
+  }
+
+  $('go').addEventListener('click', async () => {
+    status.classList.remove('error');
+    const text = $('source').value.trim();
+    if (!text) return;
+    try {
+      const opts = { type: $('type').value, length: $('length').value, format: $('format').value,
+        sharedContext: $('context').value || undefined, expectedInputLanguages: ['en'], outputLanguage: 'en' };
+      const s = await getSummarizer(opts);
+      const t0 = performance.now();
+      const usage = await s.measureInputUsage(text);
+      let input = text;
+      if (usage > s.inputQuota) {
+        // Summary of summaries: summarize each chunk as key points, then summarize the joined result.
+        const kp = await getSummarizer({ ...opts, type: 'key-points', length: 'long', format: 'plain-text' });
+        const chunks = await chunkToFit(kp, text);
+        say(status, `Input too long (${usage}/${s.inputQuota}); summarizing ${chunks.length} chunks first…`);
+        const partials = [];
+        for (const c of chunks) partials.push(await kp.summarize(c));
+        input = partials.join('\n');
+      }
+      say(status, 'Summarizing…');
+      await streamInto($('out'), s.summarizeStreaming(input));
+      say($('meta'), `${usage} / ${s.inputQuota} input tokens · ${((performance.now() - t0) / 1000).toFixed(1)}s`);
+      say(status, 'Done.');
+    } catch (err) { say(status, err.message); status.classList.add('error'); }
+  });
+</script>
+</body>
+</html>

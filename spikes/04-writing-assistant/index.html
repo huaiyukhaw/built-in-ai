@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spike 4 · Writing assistant</title>
+  <link rel="stylesheet" href="../shared/style.css">
+</head>
+<body>
+<main>
+  <p><a href="../">← All spikes</a></p>
+  <h1>Writing assistant</h1>
+  <p class="muted">Proofreader, Rewriter and Writer APIs. These are in <strong>developer trial</strong>: enable
+    <code>chrome://flags/#proofreader-api-for-gemini-nano</code>, <code>#rewriter-api-for-gemini-nano</code> and
+    <code>#writer-api-for-gemini-nano</code>, then restart Chrome.</p>
+
+  <section class="card"><ul class="availability" id="avail"></ul></section>
+
+  <div class="grid" style="margin-block-start:1rem">
+    <section class="card">
+      <h2>Draft</h2>
+      <label for="idea">Start from an idea (Writer)</label>
+      <div class="row" style="flex-wrap:nowrap">
+        <input id="idea" value="Email to client: UAT delayed one week because bank certificate is late, new go-live 10 Feb">
+        <select id="wtone" aria-label="Writer tone"><option>formal</option><option selected>neutral</option><option>casual</option></select>
+        <button id="write">Write</button>
+      </div>
+      <label for="text">Your text</label>
+      <textarea id="text">hi team, i wanted to let you know that the the deployment have been postponed untill next week becuase we found a issue with the payment gateway. Sorry for any inconvenience this may causes.</textarea>
+      <div class="row">
+        <button id="proofread">Proofread</button>
+        <button class="secondary" data-rewrite='{"tone":"more-formal"}'>More formal</button>
+        <button class="secondary" data-rewrite='{"tone":"more-casual"}'>More casual</button>
+        <button class="secondary" data-rewrite='{"length":"shorter"}'>Shorter</button>
+        <button class="secondary" data-rewrite='{"length":"longer"}'>Longer</button>
+      </div>
+      <label for="progress">Model download</label>
+      <progress id="progress" hidden></progress>
+    </section>
+
+    <section class="card">
+      <h2>Suggestion</h2>
+      <div id="out" class="output"></div>
+      <div class="row"><button id="accept" class="secondary" disabled>Accept into draft</button></div>
+    </section>
+  </div>
+  <p id="status" class="status" role="status"></p>
+</main>
+
+<script type="module">
+  import { renderAvailability, createWithProgress, streamInto, say } from '../shared/ai.js';
+  const $ = (id) => document.getElementById(id);
+  const status = $('status');
+  const ui = { progressEl: $('progress'), statusEl: status };
+  let suggestion = '';
+  const cache = new Map();
+  const get = async (api, opts) => {
+    const key = api + JSON.stringify(opts);
+    if (!cache.has(key)) cache.set(key, await createWithProgress(api, opts, ui));
+    return cache.get(key);
+  };
+  const fail = (err) => { say(status, err.message); status.classList.add('error'); };
+  const ready = (text) => { suggestion = text; $('accept').disabled = !text; };
+
+  renderAvailability($('avail'), ['Proofreader', 'Rewriter', 'Writer']);
+
+  $('proofread').addEventListener('click', async () => {
+    status.classList.remove('error');
+    try {
+      const p = await get('Proofreader', { expectedInputLanguages: ['en'] });
+      const text = $('text').value;
+      const { correctedInput, corrections } = await p.proofread(text);
+      // Build an inline diff with DOM nodes (no innerHTML of model output).
+      const out = $('out'); out.replaceChildren();
+      let cursor = 0;
+      for (const c of [...corrections].sort((a, b) => a.startIndex - b.startIndex)) {
+        out.append(text.slice(cursor, c.startIndex));
+        const del = document.createElement('mark'); del.className = 'fix'; del.textContent = text.slice(c.startIndex, c.endIndex);
+        const ins = document.createElement('ins'); ins.className = 'fix'; ins.textContent = c.correction ?? '';
+        out.append(del, ins);
+        cursor = c.endIndex;
+      }
+      out.append(text.slice(cursor));
+      ready(correctedInput);
+      say(status, `${corrections.length} correction(s).`);
+    } catch (err) { fail(err); }
+  });
+
+  document.querySelectorAll('[data-rewrite]').forEach((b) => b.addEventListener('click', async () => {
+    status.classList.remove('error');
+    try {
+      const r = await get('Rewriter', { tone: 'as-is', length: 'as-is', format: 'plain-text', ...JSON.parse(b.dataset.rewrite) });
+      ready(await streamInto($('out'), r.rewriteStreaming($('text').value)));
+      say(status, 'Rewritten.');
+    } catch (err) { fail(err); }
+  }));
+
+  $('write').addEventListener('click', async () => {
+    status.classList.remove('error');
+    try {
+      const w = await get('Writer', { tone: $('wtone').value, format: 'plain-text', length: 'medium' });
+      ready(await streamInto($('out'), w.writeStreaming($('idea').value)));
+      say(status, 'Draft written.');
+    } catch (err) { fail(err); }
+  });
+
+  $('accept').addEventListener('click', () => { $('text').value = suggestion; ready(''); $('out').textContent = ''; });
+</script>
+</body>
+</html>

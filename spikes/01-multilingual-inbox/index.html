@@ -1,0 +1,138 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spike 1 · Multilingual support inbox</title>
+  <link rel="stylesheet" href="../shared/style.css">
+</head>
+<body>
+<main>
+  <p><a href="../">← All spikes</a></p>
+  <h1>Multilingual support inbox</h1>
+  <p class="muted">Language Detector API detects the customer's language; Translator API turns it into English for the agent, then translates the agent's reply back. All on-device.</p>
+
+  <section class="card">
+    <ul class="availability" id="avail"></ul>
+  </section>
+
+  <div class="grid" style="margin-block-start:1rem">
+    <section class="card">
+      <h2>Incoming ticket (customer)</h2>
+      <div class="row">
+        <button class="secondary" data-sample="ms">Malay sample</button>
+        <button class="secondary" data-sample="zh">Chinese sample</button>
+        <button class="secondary" data-sample="ta">Tamil sample</button>
+        <button class="secondary" data-sample="id">Indonesian sample</button>
+      </div>
+      <label for="incoming">Message</label>
+      <textarea id="incoming" lang=""></textarea>
+      <div class="row"><button id="translateIn">Detect &amp; translate to English</button></div>
+      <p id="detected" class="status"></p>
+      <label for="progressIn">Model download</label>
+      <progress id="progressIn" hidden></progress>
+      <h3>English for the agent</h3>
+      <div id="english" class="output" lang="en"></div>
+    </section>
+
+    <section class="card">
+      <h2>Agent reply (English)</h2>
+      <label for="reply">Reply</label>
+      <textarea id="reply">Hi! Sorry for the trouble. I have reset your password and sent a new link to your email. Please try again within 30 minutes.</textarea>
+      <div class="row"><button id="translateOut" disabled>Translate reply to customer's language</button></div>
+      <label for="progressOut">Model download</label>
+      <progress id="progressOut" hidden></progress>
+      <h3>What the customer receives</h3>
+      <div id="outgoing" class="output"></div>
+    </section>
+  </div>
+  <p id="status" class="status" role="status"></p>
+</main>
+
+<script type="module">
+  import { renderAvailability, createWithProgress, checkAvailability, streamInto, say } from '../shared/ai.js';
+
+  const SAMPLES = {
+    ms: 'Saya tidak dapat log masuk ke akaun saya sejak semalam. Saya sudah cuba tukar kata laluan tetapi pautan tidak sampai ke emel saya. Tolong bantu segera kerana saya perlu hantar tuntutan sebelum Jumaat.',
+    zh: '我从昨天开始就无法登录我的账户。我已经尝试重置密码，但是重置链接一直没有发到我的邮箱。请尽快帮忙，因为我需要在星期五之前提交报销申请。',
+    ta: 'நேற்று முதல் என் கணக்கில் உள்நுழைய முடியவில்லை. கடவுச்சொல்லை மாற்ற முயற்சித்தேன், ஆனால் இணைப்பு என் மின்னஞ்சலுக்கு வரவில்லை. வெள்ளிக்கிழமைக்குள் கோரிக்கையை சமர்ப்பிக்க வேண்டும், உதவுங்கள்.',
+    id: 'Saya tidak bisa masuk ke akun saya sejak kemarin. Saya sudah mencoba mengganti kata sandi tetapi tautannya tidak pernah masuk ke email saya. Mohon bantu segera karena saya harus mengirim klaim sebelum hari Jumat.',
+  };
+
+  const $ = (id) => document.getElementById(id);
+  const status = $('status');
+  let customerLang = null;
+  let detector = null;
+  const translators = new Map(); // "src>tgt" -> Translator (reuse; creation is the slow part)
+
+  renderAvailability($('avail'), ['LanguageDetector', 'Translator']);
+
+  document.querySelectorAll('[data-sample]').forEach((b) =>
+    b.addEventListener('click', () => { $('incoming').value = SAMPLES[b.dataset.sample]; }));
+
+  // Translator covers a fixed language list (Malay `ms` is NOT on it as of Chrome 157).
+  // For unsupported pairs, fall back to the Prompt API, which handles more languages less reliably.
+  async function getTranslator(sourceLanguage, targetLanguage, progressEl) {
+    const key = `${sourceLanguage}>${targetLanguage}`;
+    if (!translators.has(key)) {
+      const pair = { sourceLanguage, targetLanguage };
+      const a = await checkAvailability('Translator', pair);
+      if (a === 'unavailable' || a === 'no-api') {
+        translators.set(key, await promptTranslator(sourceLanguage, targetLanguage, progressEl));
+      } else {
+        translators.set(key, await createWithProgress('Translator', pair, { progressEl, statusEl: status }));
+      }
+    }
+    return translators.get(key);
+  }
+
+  async function promptTranslator(src, tgt, progressEl) {
+    const names = new Intl.DisplayNames(['en'], { type: 'language' });
+    say(status, `Translator doesn't support ${names.of(src)} → ${names.of(tgt)}; using Prompt API fallback.`);
+    const session = await createWithProgress('LanguageModel', {
+      initialPrompts: [{ role: 'system', content: `You are a translator. Translate the user's text from ${names.of(src)} to ${names.of(tgt)}. Output only the translation.` }],
+      expectedInputs: [{ type: 'text', languages: ['en'] }],
+      expectedOutputs: [{ type: 'text', languages: ['en'] }],
+    }, { progressEl, statusEl: status });
+    // Same shape as a Translator so callers don't care; clone() keeps each translation stateless.
+    return { translateStreaming: (text) => session.clone().then((s) => s.promptStreaming(text)) };
+  }
+
+  $('translateIn').addEventListener('click', async () => {
+    const text = $('incoming').value.trim();
+    if (!text) return;
+    try {
+      detector ??= await createWithProgress('LanguageDetector', {}, { progressEl: $('progressIn'), statusEl: status });
+      const [top] = await detector.detect(text);
+      customerLang = top.detectedLanguage;
+      $('incoming').lang = customerLang;
+      const name = new Intl.DisplayNames(['en'], { type: 'language' }).of(customerLang);
+      say($('detected'), `Detected: ${name} (${customerLang}) · confidence ${(top.confidence * 100).toFixed(1)}%`);
+
+      if (customerLang === 'en') { $('english').textContent = text; }
+      else {
+        const t = await getTranslator(customerLang, 'en', $('progressIn'));
+        await streamInto($('english'), t.translateStreaming(text));
+      }
+      $('translateOut').disabled = false;
+      $('translateOut').textContent = `Translate reply to ${name}`;
+    } catch (err) {
+      say(status, err.message); status.classList.add('error');
+    }
+  });
+
+  $('translateOut').addEventListener('click', async () => {
+    if (!customerLang) return;
+    try {
+      const out = $('outgoing');
+      out.lang = customerLang;
+      if (customerLang === 'en') { out.textContent = $('reply').value; return; }
+      const t = await getTranslator('en', customerLang, $('progressOut'));
+      await streamInto(out, t.translateStreaming($('reply').value));
+    } catch (err) {
+      say(status, err.message); status.classList.add('error');
+    }
+  });
+</script>
+</body>
+</html>

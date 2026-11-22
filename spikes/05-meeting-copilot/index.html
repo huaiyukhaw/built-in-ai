@@ -1,0 +1,212 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spike 5 · Meeting Copilot</title>
+  <link rel="stylesheet" href="../shared/style.css">
+  <style>
+    #captions { display: grid; gap: 0.4rem; font-size: 1.15rem; }
+    #captions .line small { display: block; font-size: 0.8rem; color: var(--muted); }
+    body.in-pip #captionsCard { font-size: 1.1rem; }
+    body.in-pip #captionsCard h2, body.in-pip #captionsCard .row { display: none; }
+  </style>
+</head>
+<body>
+<main>
+  <p><a href="../">← All spikes</a></p>
+  <h1>Meeting Copilot</h1>
+  <p class="muted">
+    <strong>Web Speech</strong> listens → <strong>Translator</strong> captions each sentence in your language →
+    <strong>Document Picture-in-Picture</strong> floats the captions over Teams/Zoom →
+    <strong>Summarizer</strong> + <strong>Prompt API</strong> turn the transcript into minutes and action items →
+    <strong>Web Share</strong> / download sends them.
+  </p>
+
+  <section class="card">
+    <ul class="availability" id="avail"></ul>
+  </section>
+
+  <section class="card" style="margin-block-start:1rem">
+    <div class="grid" style="grid-template-columns:repeat(auto-fit,minmax(12rem,1fr))">
+      <div><label for="spoken">Meeting is spoken in</label>
+        <select id="spoken">
+          <option value="en-US">English</option><option value="zh-CN">Mandarin</option>
+          <option value="ms-MY">Malay</option><option value="ta-IN">Tamil</option><option value="ja-JP">Japanese</option>
+        </select></div>
+      <div><label for="caption">Show captions in</label>
+        <select id="caption">
+          <option value="en">English</option><option value="zh" selected>Chinese</option>
+          <option value="ta">Tamil</option><option value="id">Indonesian</option><option value="ja">Japanese</option>
+        </select></div>
+    </div>
+    <div class="row">
+      <button id="listen" class="mic" aria-pressed="false">🎙️ Start listening</button>
+      <button id="demo" class="secondary">▶ Simulate a meeting (no mic)</button>
+      <button id="popout" class="secondary">⧉ Pop out captions</button>
+      <span id="privacy" class="badge"></span>
+    </div>
+    <label for="progress">Model download</label>
+    <progress id="progress" hidden></progress>
+  </section>
+
+  <div class="grid" style="margin-block-start:1rem">
+    <section class="card" id="captionsCard">
+      <h2>Live captions</h2>
+      <div id="captions" aria-live="polite"></div>
+      <p id="interim" class="interim"></p>
+    </section>
+    <section class="card">
+      <h2>Minutes</h2>
+      <div class="row">
+        <button id="minutes">📝 Generate minutes</button>
+        <button id="share" class="secondary" disabled>Share</button>
+        <button id="download" class="secondary" disabled>Download .md</button>
+      </div>
+      <h3>Summary</h3>
+      <div id="summary" class="output"></div>
+      <h3>Action items</h3>
+      <table id="actions" style="inline-size:100%;border-collapse:collapse">
+        <thead><tr><th scope="col" align="left">Owner</th><th scope="col" align="left">Task</th><th scope="col" align="left">Due</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </section>
+  </div>
+  <p id="status" class="status" role="status"></p>
+</main>
+
+<script type="module">
+  import { renderAvailability, createWithProgress, checkAvailability, streamInto, say } from '../shared/ai.js';
+  import { createRecognizer, listenContinuously, hasRecognition, privacyLabel } from '../shared/speech.js';
+  import { popOut, hasDocumentPiP } from '../shared/pip.js';
+
+  const $ = (id) => document.getElementById(id);
+  const status = $('status');
+  const ui = { progressEl: $('progress'), statusEl: status };
+  const transcript = []; // { t, text }
+  const translators = new Map();
+  let stop = null;
+  let minutesMd = '';
+
+  renderAvailability($('avail'), ['Translator', 'Summarizer', 'LanguageModel']);
+  if (!hasRecognition) $('listen').disabled = true;
+  if (!hasDocumentPiP) $('popout').disabled = true;
+  const fail = (err) => { say(status, err.message); status.classList.add('error'); };
+
+  const srcLang = () => $('spoken').value.split('-')[0];
+
+  async function translate(text) {
+    const src = srcLang(), tgt = $('caption').value;
+    if (src === tgt) return null;
+    const key = `${src}>${tgt}`;
+    if (!translators.has(key)) {
+      const a = await checkAvailability('Translator', { sourceLanguage: src, targetLanguage: tgt });
+      translators.set(key, a === 'unavailable' || a === 'no-api' ? null
+        : await createWithProgress('Translator', { sourceLanguage: src, targetLanguage: tgt }, ui));
+    }
+    return translators.get(key)?.translate(text) ?? null;
+  }
+
+  // Captions are queued so translations appear in spoken order even if one is slow.
+  let queue = Promise.resolve();
+  function addLine(text) {
+    if (!text) return;
+    const t = new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+    transcript.push({ t, text });
+    const line = document.createElement('div');
+    line.className = 'line';
+    const small = document.createElement('small');
+    small.textContent = `${t} · ${text}`;
+    small.lang = $('spoken').value;
+    const main = document.createElement('span');
+    main.textContent = '…';
+    main.lang = $('caption').value;
+    line.append(main, small);
+    $('captions').append(line);
+    line.scrollIntoView({ block: 'end' });
+    queue = queue.then(async () => { main.textContent = (await translate(text).catch(() => null)) ?? text; });
+  }
+
+  $('listen').addEventListener('click', async () => {
+    status.classList.remove('error');
+    if (stop) { stop(); stop = null; $('listen').setAttribute('aria-pressed', 'false'); $('listen').textContent = '🎙️ Start listening'; return; }
+    try {
+      // Warm up the translator during the click so its download gets the user activation.
+      await translate('hello').catch(() => {});
+      const { rec, local } = await createRecognizer({ lang: $('spoken').value });
+      say($('privacy'), privacyLabel(local));
+      stop = listenContinuously(rec, {
+        onFinal: (text) => { $('interim').textContent = ''; addLine(text); },
+        onInterim: (text) => { $('interim').textContent = text; },
+        onError: fail,
+      });
+      $('listen').setAttribute('aria-pressed', 'true');
+      $('listen').textContent = '⏹ Stop listening';
+      say(status, 'Listening…');
+    } catch (err) { fail(err); }
+  });
+
+  const DEMO = [
+    'Okay, let us start with the customer portal go-live.',
+    'The payment gateway is still failing in UAT because the bank certificate expired.',
+    'Wei Ming will chase the bank for the new certificate by Wednesday.',
+    'If we do not get it by Wednesday, go-live moves from the third of February to the tenth.',
+    'Priya will fix the fourteen accessibility issues on the claims form by next Friday.',
+    'Ahmad needs two people from operations for three days to clean duplicate customer records.',
+    'Sarah will update the steering committee on Friday.',
+  ];
+  $('demo').addEventListener('click', async () => {
+    $('spoken').value = 'en-US';
+    await translate('hello').catch(fail); // user-activated warm-up
+    let i = 0;
+    const tick = () => { if (i < DEMO.length) { addLine(DEMO[i++]); setTimeout(tick, 1800); } };
+    tick();
+  });
+
+  $('popout').addEventListener('click', () => popOut($('captionsCard'), { width: 480, height: 220 }).catch(fail));
+
+  $('minutes').addEventListener('click', async () => {
+    status.classList.remove('error');
+    if (!transcript.length) return say(status, 'Nothing transcribed yet.');
+    const text = transcript.map((l) => `[${l.t}] ${l.text}`).join('\n');
+    try {
+      const summarizer = await createWithProgress('Summarizer',
+        { type: 'key-points', format: 'markdown', length: 'medium', sharedContext: 'A work meeting transcript.', outputLanguage: 'en' }, ui);
+      const summary = await streamInto($('summary'), summarizer.summarizeStreaming(text));
+
+      const lm = await createWithProgress('LanguageModel', {
+        initialPrompts: [{ role: 'system', content: 'Extract action items from meeting transcripts. Use "" when owner or due date is not stated.' }],
+        expectedInputs: [{ type: 'text', languages: ['en'] }], expectedOutputs: [{ type: 'text', languages: ['en'] }],
+      }, ui);
+      const raw = await lm.prompt(text, { responseConstraint: {
+        type: 'array',
+        items: { type: 'object', properties: { owner: { type: 'string' }, task: { type: 'string' }, due: { type: 'string' } },
+          required: ['owner', 'task', 'due'], additionalProperties: false },
+      } });
+      lm.destroy();
+      const items = JSON.parse(raw);
+      $('actions').tBodies[0].replaceChildren(...items.map((a) => {
+        const tr = document.createElement('tr');
+        for (const v of [a.owner, a.task, a.due]) { const td = document.createElement('td'); td.textContent = v || '—'; tr.append(td); }
+        return tr;
+      }));
+      minutesMd = `# Meeting minutes — ${new Date().toLocaleDateString()}\n\n## Summary\n${summary}\n\n## Action items\n`
+        + items.map((a) => `- [ ] **${a.owner || 'Unassigned'}**: ${a.task}${a.due ? ` (due ${a.due})` : ''}`).join('\n')
+        + `\n\n## Transcript\n${text}\n`;
+      $('download').disabled = false;
+      $('share').disabled = !navigator.canShare?.({ text: minutesMd });
+      say(status, `Minutes ready: ${items.length} action item(s).`);
+    } catch (err) { fail(err); }
+  });
+
+  $('download').addEventListener('click', () => {
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(new Blob([minutesMd], { type: 'text/markdown' }));
+    a.download = `minutes-${new Date().toISOString().slice(0, 10)}.md`;
+    a.click();
+    setTimeout(() => URL.revokeObjectURL(a.href), 1000);
+  });
+  $('share').addEventListener('click', () => navigator.share({ title: 'Meeting minutes', text: minutesMd }).catch(() => {}));
+</script>
+</body>
+</html>

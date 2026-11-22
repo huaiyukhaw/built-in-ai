@@ -1,0 +1,250 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spike 6 · Hands-free site inspection</title>
+  <link rel="stylesheet" href="../shared/style.css">
+  <style>
+    #talk { font-size: 1.2rem; padding: 1rem 1.5rem; touch-action: none; user-select: none; }
+    .photos { display: flex; gap: 0.5rem; flex-wrap: wrap; }
+    .photos img { inline-size: 7rem; aspect-ratio: 4/3; object-fit: cover; border-radius: 8px; }
+    .changed { animation: flash 1.2s; }
+    @keyframes flash { from { background: color-mix(in oklab, var(--accent) 35%, transparent); } }
+    @media (prefers-reduced-motion: reduce) { .changed { animation: none; outline: 2px solid var(--accent); } }
+  </style>
+</head>
+<body>
+<main>
+  <p><a href="../">← All spikes</a></p>
+  <h1>Hands-free site inspection</h1>
+  <p class="muted">
+    For technicians with gloves on. Hold the button and talk: <strong>Web Speech</strong> transcribes,
+    the <strong>Prompt API</strong> merges what you said into the form as JSON (corrections like "actually make that poor" work),
+    <strong>camera + Prompt API vision</strong> lists visible defects, <strong>Geolocation</strong> stamps the site, and
+    <strong>speech synthesis</strong> reads back what changed so you never look at the screen.
+  </p>
+
+  <section class="card"><ul class="availability" id="avail"></ul></section>
+
+  <div class="grid" style="margin-block-start:1rem">
+    <section class="card">
+      <h2>Talk</h2>
+      <div class="row">
+        <button id="talk" class="mic" aria-pressed="false">🎙️ Hold to talk</button>
+        <span id="privacy" class="badge"></span>
+      </div>
+      <p id="heard" class="interim"></p>
+      <label for="typed">…or type what you would say</label>
+      <div class="row" style="flex-wrap:nowrap">
+        <input id="typed" value="Pump station 3 at Jalan Kebun, the main pump is leaking oil and the pressure gauge is cracked, condition poor, there is a slip hazard, replace the seal and come back next Tuesday">
+        <button id="send">Send</button>
+      </div>
+      <div class="row">
+        <label style="margin:0;display:flex;gap:.4rem;align-items:center;font-weight:400"><input type="checkbox" id="readback" checked style="inline-size:auto"> Read back changes aloud</label>
+      </div>
+      <h3>Camera</h3>
+      <video id="video" playsinline muted hidden></video>
+      <div class="row">
+        <button id="camera" class="secondary">📷 Start camera</button>
+        <button id="snap" class="secondary" disabled>Capture &amp; find defects</button>
+      </div>
+      <div id="photos" class="photos"></div>
+      <label for="progress">Model download</label>
+      <progress id="progress" hidden></progress>
+    </section>
+
+    <section class="card">
+      <h2>Inspection report</h2>
+      <form id="report">
+        <label for="f-site">Site</label><input id="f-site" name="site">
+        <label for="f-asset">Asset</label><input id="f-asset" name="asset">
+        <label for="f-cond">Condition</label>
+        <select id="f-cond" name="condition"><option value="">—</option><option>good</option><option>fair</option><option>poor</option><option>critical</option></select>
+        <label for="f-issues">Issues found (one per line)</label><textarea id="f-issues" name="issues" style="min-block-size:5rem"></textarea>
+        <label for="f-actions">Recommended actions</label><textarea id="f-actions" name="actions" style="min-block-size:4rem"></textarea>
+        <label for="f-hazard">Safety hazard?</label>
+        <select id="f-hazard" name="safetyHazard"><option value="false">No</option><option value="true">Yes</option></select>
+        <label for="f-follow">Follow-up date</label><input id="f-follow" name="followUpDate" type="date">
+        <label for="f-loc">Location</label><input id="f-loc" name="location" readonly>
+      </form>
+      <div class="row">
+        <button id="locate" class="secondary">📍 Stamp location</button>
+        <button id="shareReport">Share report</button>
+      </div>
+    </section>
+  </div>
+  <p id="status" class="status" role="status"></p>
+</main>
+
+<script type="module">
+  import { renderAvailability, createWithProgress, say } from '../shared/ai.js';
+  import { createRecognizer, hasRecognition, speak, privacyLabel } from '../shared/speech.js';
+
+  const $ = (id) => document.getElementById(id);
+  const status = $('status');
+  const ui = { progressEl: $('progress'), statusEl: status };
+  const form = $('report');
+  const photos = []; // File objects for sharing
+  const fail = (err) => { say(status, err.message); status.classList.add('error'); };
+  renderAvailability($('avail'), ['LanguageModel']);
+
+  const today = new Date();
+  const SCHEMA = {
+    type: 'object',
+    properties: {
+      site: { type: 'string' }, asset: { type: 'string' },
+      condition: { type: 'string', enum: ['', 'good', 'fair', 'poor', 'critical'] },
+      issues: { type: 'array', items: { type: 'string' } },
+      actions: { type: 'array', items: { type: 'string' } },
+      safetyHazard: { type: 'boolean' },
+      followUpDate: { type: 'string', description: 'YYYY-MM-DD or ""' },
+    },
+    required: ['site', 'asset', 'condition', 'issues', 'actions', 'safetyHazard', 'followUpDate'],
+    additionalProperties: false,
+  };
+
+  const readForm = () => ({
+    site: form.site.value, asset: form.asset.value, condition: form.condition.value,
+    issues: form.issues.value.split('\n').filter(Boolean), actions: form.actions.value.split('\n').filter(Boolean),
+    safetyHazard: form.safetyHazard.value === 'true', followUpDate: form.followUpDate.value,
+  });
+
+  function writeForm(next) {
+    const prev = readForm();
+    const changed = [];
+    for (const [k, v] of Object.entries(next)) {
+      const el = form.elements.namedItem(k);
+      const val = Array.isArray(v) ? v.join('\n') : String(v);
+      const old = Array.isArray(prev[k]) ? prev[k].join('\n') : String(prev[k]);
+      if (val === old) continue;
+      el.value = val;
+      el.classList.remove('changed'); void el.offsetWidth; el.classList.add('changed');
+      changed.push(k);
+    }
+    return changed;
+  }
+
+  // Separate base sessions: image input may be unsupported on a device where text works.
+  const bases = {};
+  async function session(withImage = false) {
+    bases[withImage] ??= await createWithProgress('LanguageModel', {
+      initialPrompts: [{ role: 'system', content:
+        `You maintain a field inspection report as JSON. You receive the CURRENT report and a NEW spoken note. ` +
+        `Return the full updated report. Keep existing values unless the note adds to or corrects them. ` +
+        `Append new issues/actions rather than replacing them, unless the note says to remove one. ` +
+        `Today is ${today.toISOString().slice(0, 10)} (${today.toLocaleDateString('en', { weekday: 'long' })}); resolve relative dates.` }],
+      expectedInputs: [{ type: 'text', languages: ['en'] }, ...(withImage ? [{ type: 'image' }] : [])],
+      expectedOutputs: [{ type: 'text', languages: ['en'] }],
+    }, ui);
+    return bases[withImage].clone();
+  }
+
+  async function applyNote(note) {
+    if (!note) return;
+    status.classList.remove('error');
+    $('heard').textContent = `“${note}”`;
+    try {
+      const s = await session();
+      say(status, 'Updating report…');
+      const raw = await s.prompt(`CURRENT:\n${JSON.stringify(readForm())}\n\nNEW NOTE:\n${note}`, { responseConstraint: SCHEMA });
+      s.destroy();
+      const changed = writeForm(JSON.parse(raw));
+      const msg = changed.length ? `Updated ${changed.join(', ')}.` : 'No changes.';
+      say(status, msg);
+      if ($('readback').checked) {
+        const f = readForm();
+        speak(changed.length
+          ? `Got it. ${changed.map((k) => k === 'issues' ? `${f.issues.length} issues` : k === 'actions' ? `${f.actions.length} actions` : `${k.replace(/([A-Z])/g, ' $1').toLowerCase()} ${f[k]}`).join(', ')}.`
+          : 'Nothing changed.');
+      }
+    } catch (err) { fail(err); }
+  }
+
+  // Push-to-talk: pointer events cover mouse, touch and pen; keyboard users can hold Space/Enter.
+  let rec = null, transcript = '';
+  async function startTalk() {
+    if (!hasRecognition) return fail(new Error('Speech recognition not supported; type instead.'));
+    try {
+      speechSynthesis?.cancel();
+      const r = await createRecognizer({ lang: 'en-US', continuous: true, interimResults: true });
+      rec = r.rec; transcript = '';
+      say($('privacy'), privacyLabel(r.local));
+      rec.onresult = (e) => {
+        transcript = [...e.results].map((x) => x[0].transcript).join(' ');
+        $('heard').textContent = transcript;
+      };
+      rec.start();
+      $('talk').setAttribute('aria-pressed', 'true');
+    } catch (err) { fail(err); }
+  }
+  function endTalk() {
+    if (!rec) return;
+    $('talk').setAttribute('aria-pressed', 'false');
+    const r = rec; rec = null;
+    r.onend = () => applyNote(transcript.trim());
+    r.stop();
+  }
+  $('talk').addEventListener('pointerdown', (e) => { $('talk').setPointerCapture(e.pointerId); startTalk(); });
+  $('talk').addEventListener('pointerup', endTalk);
+  $('talk').addEventListener('pointercancel', endTalk);
+  $('talk').addEventListener('keydown', (e) => { if ((e.key === ' ' || e.key === 'Enter') && !e.repeat) { e.preventDefault(); startTalk(); } });
+  $('talk').addEventListener('keyup', (e) => { if (e.key === ' ' || e.key === 'Enter') endTalk(); });
+
+  $('send').addEventListener('click', () => applyNote($('typed').value.trim()));
+
+  // Camera → still frame → Prompt API vision → append defects as issues.
+  $('camera').addEventListener('click', async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
+      $('video').srcObject = stream; $('video').hidden = false; await $('video').play();
+      $('snap').disabled = false;
+    } catch (err) { fail(err); }
+  });
+
+  $('snap').addEventListener('click', async () => {
+    const v = $('video');
+    const canvas = new OffscreenCanvas(v.videoWidth, v.videoHeight);
+    canvas.getContext('2d').drawImage(v, 0, 0);
+    const blob = await canvas.convertToBlob({ type: 'image/jpeg', quality: 0.85 });
+    const file = new File([blob], `photo-${photos.length + 1}.jpg`, { type: 'image/jpeg' });
+    photos.push(file);
+    const img = document.createElement('img');
+    img.src = URL.createObjectURL(blob);
+    img.alt = `Inspection photo ${photos.length}`;
+    $('photos').append(img);
+    try {
+      const s = await session(true);
+      say(status, 'Looking for defects…');
+      const raw = await s.prompt([{ role: 'user', content: [
+        { type: 'text', value: `CURRENT:\n${JSON.stringify(readForm())}\n\nNEW NOTE: Add any visible defects, damage, corrosion, leaks or hazards in this photo as issues. Set safetyHazard if you see one.` },
+        { type: 'image', value: blob },
+      ] }], { responseConstraint: SCHEMA });
+      s.destroy();
+      const changed = writeForm(JSON.parse(raw));
+      say(status, changed.length ? `Photo analysed: updated ${changed.join(', ')}.` : 'No defects spotted.');
+      if ($('readback').checked) speak(changed.length ? 'Photo added. I noted the visible issues.' : 'Photo added. I did not see any defects.');
+    } catch (err) { fail(err); }
+  });
+
+  $('locate').addEventListener('click', () => {
+    navigator.geolocation.getCurrentPosition(
+      (p) => { form.location.value = `${p.coords.latitude.toFixed(5)}, ${p.coords.longitude.toFixed(5)} (±${Math.round(p.coords.accuracy)} m)`; },
+      (e) => fail(new Error(`Location: ${e.message}`)),
+      { enableHighAccuracy: true, timeout: 10000 });
+  });
+
+  $('shareReport').addEventListener('click', async () => {
+    const r = readForm();
+    const text = `Inspection: ${r.site} / ${r.asset}\nCondition: ${r.condition}${r.safetyHazard ? ' ⚠️ SAFETY HAZARD' : ''}\n`
+      + `Issues:\n${r.issues.map((i) => `- ${i}`).join('\n')}\nActions:\n${r.actions.map((i) => `- ${i}`).join('\n')}\n`
+      + `Follow-up: ${r.followUpDate || '—'}\nLocation: ${form.location.value || '—'}`;
+    const data = { title: 'Inspection report', text, files: photos };
+    if (navigator.canShare?.(data)) return navigator.share(data).catch(() => {});
+    if (navigator.canShare?.({ text })) return navigator.share({ title: data.title, text }).catch(() => {});
+    await navigator.clipboard.writeText(text);
+    say(status, 'Web Share not available here; report copied to clipboard.');
+  });
+</script>
+</body>
+</html>
