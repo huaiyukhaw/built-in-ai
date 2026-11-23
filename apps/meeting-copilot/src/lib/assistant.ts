@@ -2,8 +2,9 @@
 import { agendaStatus, checkFromNumbers, groundCheck, uncoveredQuestions, type AgendaCheck } from './agenda';
 import { AiUnavailableError, contextWindow, create, type Progress } from './ai';
 import { modelGate } from './gate';
-import { mergeExtractions, type Extracted } from './merge';
+import { dropContextItems, mergeExtractions, type Extracted } from './merge';
 import type { Minutes, MinutesWindow, Segment } from './model';
+import { speakerLabel } from './speakers';
 import { charBudget, fitRecent, formatTranscript, lastMinutes, planWindows, type WindowRange } from './transcript';
 
 export { mergeExtractions } from './merge';
@@ -206,7 +207,8 @@ export class Assistant {
     const input = (earlier.length ? `EARLIER CONTEXT:\n${formatTranscript(earlier)}\n\n` : '') + `TRANSCRIPT:\n${formatTranscript(part)}`;
     const s = await base.clone({ signal });
     try {
-      const x = JSON.parse(await s.prompt(input, { responseConstraint: EXTRACT_SCHEMA, signal })) as Extracted;
+      const said = (list: Segment[]) => list.map((l) => `${speakerLabel(l)} ${l.text}`);
+      const x = dropContextItems(JSON.parse(await s.prompt(input, { responseConstraint: EXTRACT_SCHEMA, signal })) as Extracted, said(earlier), said(part));
       const checked = agenda.length ? { agenda: await this.checkAgenda(agenda, part, signal, x) } : {};
       return { ...range, summary, ...x, extracted: true, ...checked };
     } finally {

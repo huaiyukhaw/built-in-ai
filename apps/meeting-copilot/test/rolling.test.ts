@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { ModelGate } from '../src/lib/gate';
-import { cleanOwner, dueFromText, mergeExtractions, ownerFromTask, similarity } from '../src/lib/merge';
+import { cleanOwner, dropContextItems, dueFromText, mergeExtractions, ownerFromTask, similarity } from '../src/lib/merge';
 import type { Meeting, MinutesWindow, Segment } from '../src/lib/model';
 import { RollingMinutes } from '../src/lib/rolling';
 import { formatTranscript, planWindows, type WindowRange } from '../src/lib/transcript';
@@ -205,5 +205,43 @@ describe('RollingMinutes', () => {
     release();
     await r.idle();
     expect(meeting.rolling).toHaveLength(1);
+  });
+});
+
+describe('dropContextItems', () => {
+  // Window 3 of the demo in Chrome 157: the extractor repeated items from the EARLIER CONTEXT lines.
+  const context = [
+    'Wei Ming (Remote) Sure, I will follow up with the bank today and again on Wednesday morning.',
+    'Room If we do not have it by Wednesday, we push go-live from the third of February to the tenth.',
+    'Room The accessibility audit found fourteen issues on the claims form, mostly contrast and missing labels. Priya will fix them by next Friday.',
+  ];
+  const window = [
+    'Room Sarah will ask the ops manager.',
+    'Room Legal wants the old portal kept read-only for six months, so we agreed on six months.',
+    'Ahmad (Remote) Open question: who signs off UAT on the client side? Nobody owns that yet.',
+  ];
+
+  it('drops items taken from the context lines and keeps the window’s own', () => {
+    const out = dropContextItems({
+      decisions: ['Legal wants the old portal kept read-only for six months, so we agreed on six months.'],
+      actionItems: [
+        { owner: 'Sarah', task: 'Sarah will ask the ops manager.', due: '' },
+        { owner: 'Wei Ming', task: 'Wei Ming will follow up with the bank today.', due: 'today' },
+        { owner: 'Priya', task: 'Priya will fix them by next Friday.', due: 'next Friday' },
+      ],
+      openQuestions: ['who signs off UAT on the client side?'],
+    }, context, window);
+    expect(out.actionItems.map((a) => a.owner)).toEqual(['Sarah']);
+    expect(out.decisions).toHaveLength(1);
+    expect(out.openQuestions).toHaveLength(1);
+  });
+
+  it('keeps a repeat that is also said inside the window (eval: long-meeting)', () => {
+    const out = dropContextItems(
+      { decisions: [], openQuestions: [], actionItems: [{ owner: 'Hafiz', task: 'migrate the reporting database by end of month', due: 'end of month' }] },
+      ['Room Hafiz will migrate the reporting database to the new server by the end of the month.'],
+      ['Room Just to confirm, Hafiz, you’re still doing the reporting database migration by end of month?', 'Hafiz (Room) Yes, still on track.'],
+    );
+    expect(out.actionItems).toHaveLength(1);
   });
 });

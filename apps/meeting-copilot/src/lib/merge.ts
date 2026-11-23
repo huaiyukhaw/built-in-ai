@@ -75,6 +75,37 @@ function uniqText(items: string[], threshold: number): string[] {
   return out;
 }
 
+/** Share of `item`'s content words that appear in `line` (0–1). */
+function coverage(item: Set<string>, line: string): number {
+  if (!item.size) return 0;
+  const l = tokens(line);
+  let n = 0;
+  for (const w of item) if (l.has(w)) n++;
+  return n / item.size;
+}
+
+/**
+ * Drop items the model took from the EARLIER CONTEXT lines, which it gets only to tell who is
+ * speaking. The previous window already extracted them, and copies worded differently ("Wei Ming
+ * will follow up with the bank today" next to "follow up with the bank") don't always merge. An
+ * item goes when a context line covers at least half its words and better than any window line,
+ * so a repeat said inside the window ("just to confirm, you're doing X?") stays.
+ */
+export function dropContextItems(x: Extracted, context: string[], window: string[]): Extracted {
+  if (!context.length) return x;
+  const fromContext = (text: string) => {
+    const t = tokens(text);
+    const ctx = Math.max(...context.map((l) => coverage(t, l)));
+    const win = Math.max(0, ...window.map((l) => coverage(t, l)));
+    return ctx >= 0.5 && ctx > win;
+  };
+  return {
+    decisions: x.decisions.filter((d) => !fromContext(d)),
+    actionItems: x.actionItems.filter((a) => !fromContext(`${a.owner} ${a.task}`)),
+    openQuestions: x.openQuestions.filter((q) => !fromContext(q)),
+  };
+}
+
 /**
  * Merge per-window extractions in meeting order. Near-duplicates collapse into the first one,
  * which takes the other's owner and due date if it lacked them.
