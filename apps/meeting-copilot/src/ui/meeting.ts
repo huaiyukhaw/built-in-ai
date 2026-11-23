@@ -160,7 +160,9 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   const tabBtn = h('button', { class: 'ctl', id: 'tab-btn', 'aria-pressed': 'false', 'aria-label': 'Caption remote speakers', title: 'Caption remote speakers (meeting tab or desktop app)', disabled: !hasTabCapture() }, icon('present'));
   const floatBtn = h('button', { class: 'ctl', 'aria-label': 'Float captions over other windows', title: 'Float captions', disabled: !hasPiP() }, icon('pip'));
   const privacy = h('span', { class: 'tag ok privacy', hidden: true });
-  const endBtn = h('button', { class: 'btn-end', title: 'Stop listening and write the minutes' }, icon('call-end'), h('span', { class: 'label' }, 'End'));
+  // Shown only while the meeting is live; afterwards Generate minutes (Minutes tab) does the same work.
+  let demoLive = false;
+  const endBtn = h('button', { class: 'btn-end', title: 'Stop listening and write the minutes', hidden: true }, icon('call-end'), h('span', { class: 'label' }, 'End'));
   const centerCtl = h('div', { class: 'center' }, micBtn, tabBtn, floatBtn);
   const controlBar = h('div', { class: 'control-bar', role: 'toolbar', 'aria-label': 'Meeting controls' },
     h('div', { class: 'left' }, langChip, langMenu),
@@ -385,13 +387,14 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     stage.classList.toggle('is-live', sources.size > 0);
     spoken.disabled = sources.size > 0;
     privacy.hidden = sources.size === 0;
+    endBtn.hidden = sources.size === 0 && !demoLive;
     const local = [...sources.values()].every((s) => s.local);
     privacy.className = `tag privacy ${local ? 'ok' : 'warn'}`;
     privacy.replaceChildren(icon(local ? 'lock' : 'cloud'), h('span', { class: 'label' }, local ? 'On-device' : 'Mic speech via Google'));
     privacy.title = local ? 'Audio is transcribed on this device' : 'Chrome sends room-mic audio to Google’s speech service for this language';
     refreshTabHint();
     void updateWakeLock();
-    if (sources.size) rolling.start(); else rolling.stop();
+    if (sources.size || demoLive) rolling.start(); else rolling.stop();
     clearInterval(agendaTimer);
     agendaTimer = sources.size ? setInterval(refreshAgenda, 30_000) : undefined;
     refreshAgenda();
@@ -495,8 +498,10 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   });
 
   endBtn.addEventListener('click', () => {
-    const wasLive = sources.size > 0;
+    const wasLive = sources.size > 0 || demoLive;
+    demoLive = false;
     for (const k of [...sources.keys()]) stopSource(k);
+    refreshLive();
     selectTab(tabMin);
     if (meeting.segments.length && (!meeting.minutes || wasLive)) genBtn.click();
     else if (!meeting.segments.length) snackbar('Nothing was captioned yet');
@@ -742,6 +747,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
       void translator.prepare(langOf(meeting.spokenLocale), meeting.captionLang);
       void assistant.warmUp();
       rolling.start(); // the demo has no live source, so draft minutes as if it did
+      demoLive = true;
+      refreshLive();
       demoSlides();
       DEMO.forEach(([src, t], i) => setTimeout(() => addSegment(src, t), LEAD_MS + i * LINE_MS));
       setTimeout(() => { demoBtn.disabled = false; }, LEAD_MS + DEMO.length * LINE_MS);

@@ -44,7 +44,7 @@ export function glossaryPanel(meeting: Meeting, onChange: () => void): GlossaryP
 
   function render() {
     const terms = meeting.glossary ?? [];
-    const input = h('input', { class: 'field', id: 'glossary-add', autocomplete: 'off', placeholder: 'FPX, Lim Wei Jie, read-only' }) as HTMLInputElement;
+    const input = h('input', { class: 'field', id: 'glossary-add', autocomplete: 'off', placeholder: 'Add names or terms, separated by commas' }) as HTMLInputElement;
     const form = h('form', { class: 'glossary-add' }, input, h('button', { class: 'btn-tonal', type: 'submit' }, icon('add'), 'Add'));
     form.addEventListener('submit', (e) => {
       e.preventDefault();

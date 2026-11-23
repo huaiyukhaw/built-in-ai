@@ -260,7 +260,8 @@ dialog {
   border: 0;
   padding: 1.5rem;
   border-radius: var(--r-xl);
-  background: var(--surface-container-high);
+  /* Light mode: surface-container-low, a step whiter than before. Dark: surface-container-high. */
+  background: light-dark(#f0f4f9, #282a2c);
   color: var(--on-surface);
   inline-size: min(36rem, calc(100vw - 2rem));
   max-block-size: calc(100dvh - 2rem);
