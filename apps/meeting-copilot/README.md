@@ -104,7 +104,7 @@ public/pcm-worklet.js AudioWorklet that batches PCM to the main thread
 
 ## Deploy (Cloudflare Pages)
 
-**Live:** https://meeting-copilot-dne.pages.dev (Cloudflare Pages project `meeting-copilot`, created 2026-11-23). Builds run only when something under `apps/meeting-copilot/` changes (`path_includes`); pushes to `main` go to production and other branches get preview URLs.
+**Live:** https://meet.h8w.dev (also https://meeting-copilot-dne.pages.dev; Cloudflare Pages project `meeting-copilot`, created 2026-11-23). `meet.h8w.dev` is a proxied CNAME in the `h8w.dev` zone. The repo must be in the Cloudflare Workers and Pages GitHub app's repository access, or pushes don't reach Cloudflare. Builds run only when something under `apps/meeting-copilot/` changes (`path_includes`); pushes to `main` go to production and other branches get preview URLs.
 
 A static site: `pnpm build` writes `dist/`, and everything else runs in the visitor's Chrome. The Prompt API is stable for web pages since Chrome 148, so no origin-trial token is needed. HTTPS is required (mic, screen capture, Document Picture-in-Picture), which Pages provides.
 
