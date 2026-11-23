@@ -3,35 +3,55 @@
 # then drive it with:  agent-browser connect 9333
 #
 #   ./chrome.sh ai      # normal Chrome: Gemini Nano, Translator, Summarizer, Q&A, minutes
-#   ./chrome.sh audio   # + fake media: tab share auto-picks "Fake Meeting", mic permission auto-granted
+#   ./chrome.sh audio   # + fake media: mic and screen/tab share both play a WAV file
 #
-# Why not `agent-browser open` directly? It launches Chrome with --disable-component-update and
-# --disable-background-networking, so Gemini Nano's manifest never downloads and every
-# LanguageModel/Summarizer.availability() call hangs. Launch Chrome ourselves and attach over CDP.
+# ONE test profile, ONE model copy. Gemini Nano (~4 GB) and the Translator/Summarizer packs are
+# stored per Chrome profile folder, so every new --user-data-dir downloads them again. This script:
+#   - reuses the test Chrome if one is already listening on port 9333 (no second instance);
+#   - always uses the same profile folder, and refuses another one unless ALLOW_NEW_PROFILE=1.
+# Never let `agent-browser open` launch Chrome itself either: it uses a throwaway profile with
+# --disable-component-update, so models never download and every availability() call hangs.
 #
-# Prereqs: `pnpm build && pnpm preview` (app on :4173), `npx serve test/e2e -l 4180` (fake meeting),
-#          `powershell -File test/e2e/make-audio.ps1` (generates room.wav / remote.wav).
-# The test profile keeps the downloaded models (~4 GB) between runs. Delete the folder to reset.
+# Options (environment): APP_URL (default http://localhost:4173/?demo), WAV (audio mode, default
+# room.wav; remote.wav makes mic and share play the same speech, i.e. the echo case).
+# Prereqs: the app running (`pnpm dev` on :5174 or `pnpm build && pnpm preview` on :4173), and for
+# audio mode `powershell -File test/e2e/make-audio.ps1` (generates room.wav / remote.wav).
 set -euo pipefail
 
 MODE="${1:-ai}"
+PORT=9333
 CHROME="${CHROME:-$LOCALAPPDATA/Google/Chrome/Application/chrome.exe}"
-PROFILE="${PROFILE:-$LOCALAPPDATA/meeting-copilot-test-chrome}"
-HERE="$(cd "$(dirname "$0")" && pwd -W 2>/dev/null || pwd)"
+TEST_PROFILE="$LOCALAPPDATA/meeting-copilot-test-chrome"
+PROFILE="${PROFILE:-$TEST_PROFILE}"
+HERE="$(cd "$(dirname "$0")" && pwd)"
+win() { cygpath -w "$1" 2>/dev/null || echo "$1"; }
 
-args=(--remote-debugging-port=9333 "--user-data-dir=$PROFILE" --no-first-run --no-default-browser-check)
-url="http://localhost:4173/?demo"
+if [[ "$PROFILE" != "$TEST_PROFILE" && "${ALLOW_NEW_PROFILE:-}" != 1 ]]; then
+  echo "Refusing profile $PROFILE: a new profile downloads Gemini Nano (~4 GB) again." >&2
+  echo "Use the shared test profile ($TEST_PROFILE), or set ALLOW_NEW_PROFILE=1 if you really mean it." >&2
+  exit 1
+fi
+
+if curl -s --max-time 2 "http://localhost:$PORT/json/version" >/dev/null; then
+  echo "A test Chrome is already running on port $PORT; reusing it (agent-browser connect $PORT)."
+  exit 0
+fi
+
+if [[ ! -d "$PROFILE/OptGuideOnDeviceModel" ]]; then
+  echo "Note: no Gemini Nano in $PROFILE yet. The first run downloads it once (~4 GB, needs ~20 GB free)."
+fi
+
+args=(--remote-debugging-port=$PORT "--user-data-dir=$(win "$PROFILE")" --no-first-run --no-default-browser-check)
+url="${APP_URL:-http://localhost:4173/?demo}"
 
 if [[ "$MODE" == "audio" ]]; then
-  # Notes from testing:
-  # - Web Speech recognition ignores the fake capture file and uses the REAL default microphone.
-  # - With --use-fake-device-for-media-stream, getDisplayMedia audio is the fake file (room.wav),
-  #   not the tab's sound. Both still exercise the full capture → transcription pipelines.
+  # With --use-fake-device-for-media-stream, getUserMedia (the room mic, passed to Web Speech as a
+  # track) and getDisplayMedia audio both play the WAV file instead of real devices.
   args+=(--use-fake-ui-for-media-stream --use-fake-device-for-media-stream
-         "--use-file-for-fake-audio-capture=${HERE//\//\\}\\room.wav"
+         "--use-file-for-fake-audio-capture=$(win "$HERE/${WAV:-room.wav}")"
          "--auto-select-tab-capture-source-by-title=Fake Meeting"
          --autoplay-policy=no-user-gesture-required)
-  url="http://localhost:4180/fake-meeting.html"
+  url="${APP_URL:-http://localhost:4180/fake-meeting.html}"
 fi
 
 exec "$CHROME" "${args[@]}" "$url"
