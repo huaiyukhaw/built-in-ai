@@ -102,6 +102,32 @@ src/
 public/pcm-worklet.js AudioWorklet that batches PCM to the main thread
 ```
 
+## Deploy (Cloudflare Pages)
+
+A static site: `pnpm build` writes `dist/`, and everything else runs in the visitor's Chrome. The Prompt API is stable for web pages since Chrome 148, so no origin-trial token is needed. HTTPS is required (mic, screen capture, Document Picture-in-Picture), which Pages provides.
+
+**One-time setup** (Cloudflare dashboard → Workers & Pages → Create → Pages → Connect to Git):
+
+| Setting | Value |
+|---|---|
+| Repository | `huaiyukhaw/built-in-ai`, production branch `main` |
+| Root directory | `apps/meeting-copilot` |
+| Framework preset | None |
+| Build command | `pnpm build` (type-checks, then builds) |
+| Build output directory | `dist` |
+| Environment variables | `NODE_VERSION=24`, `PNPM_VERSION=10.20.0` |
+
+After that, every push to `main` deploys to `<project>.pages.dev`, and other branches get preview URLs. The site serves at the root path, so no Vite `base` change is needed.
+
+**Headers:** `public/_headers` is copied into `dist/` and applied by Pages:
+- a Content-Security-Policy that allows scripts only from the site itself (styles allow inline, for icon masks and the floating captions window);
+- a Permissions-Policy that allows mic and screen capture for the site and turns off camera and location;
+- long caching for hashed `/assets/*`, and `no-cache` on `sw.js` so updates arrive.
+
+The theme script is `public/theme-init.js` rather than inline, so the policy can forbid inline scripts. Checked in Chrome 157 with the headers applied to a production build: demo, translation, Q&A, room mic, remote capture (audio worklet) and the floating window all worked with no policy violations.
+
+**Note for visitors:** the app needs desktop Chrome with the built-in AI models; the first use downloads Gemini Nano (~4 GB, ~20 GB free disk). The eval page (`/eval.html`) is dev-only and not deployed.
+
 ## Known limits
 
 - **Desktop Chrome only.** Built-in AI isn't available on mobile, Edge, Firefox or Safari.

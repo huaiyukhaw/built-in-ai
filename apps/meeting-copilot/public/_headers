@@ -1,0 +1,18 @@
+# Cloudflare Pages response headers (https://developers.cloudflare.com/pages/configuration/headers/).
+# Everything runs on-device, so the page only ever talks to its own origin.
+# - style-src needs 'unsafe-inline': icons and a few layouts use style attributes, and the floating
+#   captions window (Document Picture-in-Picture) copies the stylesheets in as <style> elements.
+# - img-src data: is for the icon masks (SVG data URIs in icons.css).
+/*
+  Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self'; media-src 'self' blob:; worker-src 'self'; manifest-src 'self'; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'none'
+  Permissions-Policy: microphone=(self), display-capture=(self), camera=(), geolocation=(), payment=(), usb=()
+  X-Content-Type-Options: nosniff
+  Referrer-Policy: strict-origin-when-cross-origin
+
+# Hashed build output never changes under the same name.
+/assets/*
+  Cache-Control: public, max-age=31536000, immutable
+
+# The service worker must be re-checked on every visit so updates arrive.
+/sw.js
+  Cache-Control: no-cache

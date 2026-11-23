@@ -5,9 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="color-scheme" content="light dark">
   <!-- Apply a saved Light/Dark override before first paint (FOUC prevention only). -->
-  <script>
-    try { document.querySelector('meta[name="color-scheme"]').content = localStorage.getItem('color-scheme') ?? 'light dark'; } catch {}
-  </script>
+  <script src="/theme-init.js"></script>
   <meta name="description" content="On-device live captions, translation, Q&amp;A and minutes for meetings.">
   <meta name="theme-color" content="#f8fafd" media="(prefers-color-scheme: light)">
   <meta name="theme-color" content="#131314" media="(prefers-color-scheme: dark)">

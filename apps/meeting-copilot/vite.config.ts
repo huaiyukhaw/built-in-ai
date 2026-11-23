@@ -7,7 +7,7 @@ export default defineConfig({
   plugins: [
     VitePWA({
       registerType: 'autoUpdate',
-      includeAssets: ['icon.svg', 'pcm-worklet.js'],
+      includeAssets: ['icon.svg', 'pcm-worklet.js', 'theme-init.js'],
       manifest: {
         id: '/',
         name: 'Meeting Copilot',
