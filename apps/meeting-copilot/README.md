@@ -19,7 +19,7 @@ Check model status at `chrome://on-device-internals`. The first use of each API 
 
 ## End-to-end testing in real Chrome
 
-`test/e2e/chrome.sh` launches a visible Chrome with its own test profile and a debugging port, which `agent-browser connect 9333` attaches to. Don't let `agent-browser open` launch Chrome itself: it passes `--disable-component-update`, so Gemini Nano never downloads and every `availability()` call hangs. The script always uses the one test profile (`%LOCALAPPDATA%meeting-copilot-test-chrome`) and reuses a test Chrome already on port 9333, because each new profile downloads Gemini Nano (~4 GB) again.
+`test/e2e/chrome.sh` launches a visible Chrome with its own test profile and a debugging port, which `agent-browser connect 9333` attaches to. Don't let `agent-browser open` launch Chrome itself: it passes `--disable-component-update`, so Gemini Nano never downloads and every `availability()` call hangs. The script always uses the one test profile (`D:\chrome-profiles\meeting-copilot-test-chrome`, on D: because C: is nearly full; `TEST_PROFILE_DIR` moves it) and reuses a test Chrome already on port 9333, because each new profile downloads Gemini Nano (~4 GB) again.
 
 ```bash
 powershell -File test/e2e/make-audio.ps1     # one-time: spoken meeting WAVs via Windows TTS

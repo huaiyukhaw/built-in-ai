@@ -21,7 +21,7 @@ set -euo pipefail
 MODE="${1:-ai}"
 PORT=9333
 CHROME="${CHROME:-$LOCALAPPDATA/Google/Chrome/Application/chrome.exe}"
-TEST_PROFILE="$LOCALAPPDATA/meeting-copilot-test-chrome"
+TEST_PROFILE="${TEST_PROFILE_DIR:-/d/chrome-profiles/meeting-copilot-test-chrome}"  # on D:, as C: is nearly full
 PROFILE="${PROFILE:-$TEST_PROFILE}"
 HERE="$(cd "$(dirname "$0")" && pwd)"
 win() { cygpath -w "$1" 2>/dev/null || echo "$1"; }
