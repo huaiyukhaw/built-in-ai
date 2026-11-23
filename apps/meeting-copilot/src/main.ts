@@ -6,7 +6,7 @@ import './styles/app.css';
 import { registerSW } from 'virtual:pwa-register';
 import { getMeeting, saveMeeting } from './lib/db';
 import { newMeeting } from './lib/model';
-import { getLangPrefs, setLangPrefs } from './lib/prefs';
+import { getDefaultGlossary, getLangPrefs, setLangPrefs } from './lib/prefs';
 import { transition } from './ui/dom';
 import { renderHistory } from './ui/history';
 import { renderMeeting } from './ui/meeting';
@@ -39,6 +39,8 @@ function go(hash: string) {
 async function startNew() {
   const p = getLangPrefs();
   const m = newMeeting(p.spokenLocale, p.captionLang);
+  const terms = getDefaultGlossary();
+  if (terms.length) m.glossary = terms;
   await saveMeeting(m);
   go(`#/m/${m.id}`);
 }

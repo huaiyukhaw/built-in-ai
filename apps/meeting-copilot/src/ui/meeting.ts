@@ -7,6 +7,7 @@ import { isAbort, modelGate } from '../lib/gate';
 import { renderMarkdown } from '../lib/markdown';
 import { mergeExtractions } from '../lib/merge';
 import { EchoFilter } from '../lib/echo';
+import { correctTerms } from '../lib/glossary';
 import { LIVE_WINDOW, RollingMinutes } from '../lib/rolling';
 import { CAPTION_LANGS, langOf, SPOKEN_LOCALES, type Meeting, type Minutes, type Segment, type SegmentSource } from '../lib/model';
 import { nextSpeaker, renameSpeaker, sourceLabel } from '../lib/speakers';
@@ -16,6 +17,7 @@ import { hasMic, hasTabCapture, prepareTabTranscriber, startMic, startTabAudio, 
 import { chooseRemoteKind } from './remote-picker';
 import { askSpeakerName } from './rename-speaker';
 import { agendaPanel } from './agenda-panel';
+import { glossaryPanel } from './glossary-panel';
 import { flash, h } from './dom';
 import { hasPiP, popOut } from './pip';
 import { icon, renderAppBar, snackbar } from './shell';
@@ -34,6 +36,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   // ------------------------------------------------------------ app bar: back, editable title, date
   const title = h('input', { class: 'title-input', value: meeting.title, 'aria-label': 'Meeting title' });
   title.addEventListener('input', () => { meeting.title = title.value || 'Untitled meeting'; saver.schedule(meeting); });
+  // A renamed meeting may match an earlier one whose glossary can be reused.
+  title.addEventListener('change', () => glossaryUI.render());
   renderAppBar({
     onBack,
     title: h('div', { class: 'title-block' },
@@ -54,6 +58,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   };
   const translator = new TranslatorPool(onProgress);
   const assistant = new Assistant(onProgress);
+  assistant.glossary = meeting.glossary ?? [];
+  const terms = () => meeting.glossary ?? [];
   // While live, minutes are drafted in the background a few minutes at a time. The demo uses
   // small windows so the live action items list shows up within a minute.
   const demo = new URLSearchParams(location.search).has('demo');
@@ -105,7 +111,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     nudged.clear();
     if (changed) recheckAgenda();
   }, () => stage.classList.contains('is-live'));
-  const panelAgenda = h('div', { role: 'tabpanel', id: 'panel-agenda', 'aria-labelledby': 'tab-agenda', hidden: true }, agendaUI.el);
+  const glossaryUI = glossaryPanel(meeting, () => { assistant.glossary = terms(); saver.schedule(meeting); });
+  const panelAgenda = h('div', { role: 'tabpanel', id: 'panel-agenda', 'aria-labelledby': 'tab-agenda', hidden: true }, agendaUI.el, glossaryUI.el);
 
   const side = h('section', { class: 'side', 'aria-label': 'Meeting assistant' },
     h('div', { class: 'tabs', role: 'tablist', 'aria-label': 'Assistant' }, tabAsk, tabAgenda, tabMin), panelAsk, panelAgenda, panelMin);
@@ -197,8 +204,10 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     if (++echoes === 1) snackbar('The room mic is hearing the meeting through your speakers. Those repeated lines are removed; headphones avoid them.');
   });
 
-  function addSegment(source: SegmentSource, text: string, clipEnd?: number) {
+  function addSegment(source: SegmentSource, heard: string, clipEnd?: number) {
+    const text = correctTerms(heard, terms());
     const speaker = nextSpeaker(meeting.segments, source, text);
+    if (speaker) glossaryUI.add([speaker]);
     const seg: Segment = { id: crypto.randomUUID(), at: Date.now(), source, text, ...(speaker ? { speaker } : {}) };
     const remoteOn = sources.has('tab');
     if (source === 'tab') echo.remote(seg, clipEnd);
@@ -241,6 +250,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     const index = meeting.segments.indexOf(s);
     if (name === null || index < 0 || name === (s.speaker ?? '')) return;
     const changed = renameSpeaker(meeting.segments, index, name);
+    if (name) glossaryUI.add([name]);
     for (const i of changed) {
       const seg = meeting.segments[i];
       document.getElementById(`seg-${seg.id}`)?.replaceWith(lineEl(seg));
@@ -308,7 +318,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
       // Prepare models inside the click so a first-time download has user activation.
       void translator.prepare(langOf(meeting.spokenLocale), meeting.captionLang);
       void assistant.warmUp();
-      const src = await startMic(meeting.spokenLocale, sourceEvents('mic'));
+      const src = await startMic(meeting.spokenLocale, sourceEvents('mic'), terms);
       sources.set('mic', src);
       micBtn.setAttribute('aria-pressed', 'true');
       refreshLive();
@@ -328,7 +338,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
       void assistant.warmUp();
       const transcriber = prepareTabTranscriber(meeting.spokenLocale, onProgress);
       transcriber.catch(() => {}); // surfaced through startTabAudio below
-      const src = await startTabAudio(transcriber, sourceEvents('tab'), kind);
+      const src = await startTabAudio(transcriber, sourceEvents('tab'), kind, terms);
       sources.set('tab', src);
       tabBtn.setAttribute('aria-pressed', 'true');
       refreshLive();

@@ -31,7 +31,7 @@ export const hasMic = () => Boolean(SR());
  * The mic is opened with echo cancellation and handed to recognition as a track where Chrome
  * supports that, so a meeting playing in a Chrome tab is mostly not heard twice.
  */
-export async function startMic(locale: string, ev: SourceEvents): Promise<AudioSource> {
+export async function startMic(locale: string, ev: SourceEvents, terms: () => string[] = () => []): Promise<AudioSource> {
   const Ctor = SR();
   if (!Ctor) throw new Error('Speech recognition is not supported in this browser.');
   const rec = new Ctor();
@@ -51,6 +51,10 @@ export async function startMic(locale: string, ev: SourceEvents): Promise<AudioS
 
   const track = await echoCancelledMic();
   const begin = () => {
+    // Glossary terms as hints. On-device recognition only; read again on every restart so edits apply.
+    if (local && 'phrases' in rec && typeof SpeechRecognitionPhrase === 'function') {
+      try { rec.phrases = terms().map((t) => new SpeechRecognitionPhrase!(t, 5)); } catch { /* hints are optional */ }
+    }
     if (track) {
       try { rec.start(track); return; } catch { /* this Chrome doesn't take a track: use the default mic */ }
     }
@@ -113,6 +117,13 @@ export function prepareTabTranscriber(locale: string, onProgress?: Progress) {
   }, onProgress);
 }
 
+/** The text sent with each clip. Glossary terms help spelling; the model is told not to add them unheard. */
+export function transcribeRequest(terms: string[]): string {
+  return terms.length
+    ? `Transcribe this audio. These names and terms may be spoken; if you hear them, spell them like this: ${terms.join(', ')}. Do not write any of them unless they are spoken.`
+    : 'Transcribe this audio.';
+}
+
 export type RemoteSurface = 'browser' | 'window' | 'monitor';
 
 export interface RemoteSource extends AudioSource {
@@ -135,7 +146,7 @@ export function noAudioMessage(surface: RemoteSurface | undefined): string {
  * - `screen`: a desktop app (Teams, Zoom). Chrome can only get its sound as system audio from an entire-screen share,
  *   which also picks up notifications and any other sound on the computer.
  */
-export async function startTabAudio(transcriber: Promise<LanguageModelSession>, ev: SourceEvents, kind: 'tab' | 'screen' = 'tab'): Promise<RemoteSource> {
+export async function startTabAudio(transcriber: Promise<LanguageModelSession>, ev: SourceEvents, kind: 'tab' | 'screen' = 'tab', terms: () => string[] = () => []): Promise<RemoteSource> {
   const stream = await navigator.mediaDevices.getDisplayMedia({
     // Chrome requires video to show the picker; displaySurface only picks which picker tab opens first.
     video: { displaySurface: kind === 'screen' ? 'monitor' : 'browser' },
@@ -180,7 +191,7 @@ export async function startTabAudio(transcriber: Promise<LanguageModelSession>, 
       const s = await base.clone();
       try {
         const text = (await s.prompt([{ role: 'user', content: [
-          { type: 'text', value: 'Transcribe this audio.' },
+          { type: 'text', value: transcribeRequest(terms()) },
           { type: 'audio', value: buffer },
         ] }])).trim();
         if (text && !/^\[?no speech\]?\.?$/i.test(text)) ev.onFinal(text, clipEnd);

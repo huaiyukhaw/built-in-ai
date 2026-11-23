@@ -2,6 +2,7 @@
 // Pure, so it runs in Vitest and in the eval runner page.
 import type { ActionItem, Minutes, Segment, SegmentSource } from '../lib/model';
 import type { AgendaStatus } from '../lib/agenda';
+import { correctTerms } from '../lib/glossary';
 import { labelSpeakers } from '../lib/speakers';
 
 /**
@@ -25,6 +26,8 @@ export interface Sample {
   filler?: number;
   /** Agenda entered for the meeting, checked against each window. */
   agenda?: string[];
+  /** Names and terms for the meeting; lines are corrected with them as they would be live. */
+  glossary?: string[];
   expect: {
     /** Status of each agenda item: "discussed" also accepts "decided". */
     agenda?: AgendaStatus[];
@@ -33,6 +36,8 @@ export interface Sample {
     openQuestions: ExpectedItem[];
     /** Action items that must NOT appear, e.g. a proposal that was rejected. Each entry is a key list. */
     forbidActions?: string[][];
+    /** Words that must not appear anywhere in the minutes, e.g. misheard spellings of names. */
+    forbidText?: string[];
     /** Keys the summary should mention. */
     summary?: string[];
   };
@@ -139,6 +144,15 @@ export function scoreActions(produced: ActionItem[], expected: ExpectedAction[])
   };
 }
 
+/** Forbidden words found in the minutes, as "word: where". */
+function forbiddenText(m: Minutes, words: string[]): string[] {
+  const texts = [m.summary, ...m.decisions, ...m.actionItems.flatMap((a) => [a.owner, a.task, a.due]), ...m.openQuestions];
+  return words.flatMap((w) => {
+    const hit = texts.find((t) => ` ${norm(t)} `.includes(` ${norm(w)} `));
+    return hit ? [`spelled "${w}": ${hit.slice(0, 80)}`] : [];
+  });
+}
+
 /** Open questions the app adds for uncovered agenda items; scored under agenda, not as extra questions. */
 export const AGENDA_QUESTION = /^Agenda item not covered: /;
 
@@ -160,7 +174,10 @@ export function scoreMinutes(sample: Sample, m: Minutes, ms = 0, stages: string[
     openQuestions: scoreList(m.openQuestions.filter((q) => !AGENDA_QUESTION.test(q)), x.openQuestions),
     summaryHit: summaryKeys.filter((k) => hasKey(m.summary, k)).length,
     summaryTotal: summaryKeys.length,
-    traps: (x.forbidActions ?? []).flatMap((keys) => m.actionItems.filter((a) => matchesKeys(a.task, keys)).map(actionText)),
+    traps: [
+      ...(x.forbidActions ?? []).flatMap((keys) => m.actionItems.filter((a) => matchesKeys(a.task, keys)).map(actionText)),
+      ...forbiddenText(m, x.forbidText ?? []),
+    ],
     ...(sample.agenda && x.agenda ? { agenda: scoreAgenda(sample.agenda, x.agenda, agenda ?? []) } : {}),
   };
 }
@@ -225,8 +242,9 @@ const FILLER = [
 ];
 
 /** Turn a sample into transcript segments, 20 s apart, with filler spread evenly between real lines and speaker names found as they would be live. */
-export function sampleSegments(sample: Sample, start = Date.UTC(2026, 0, 5, 1, 0, 0)): Segment[] {
-  const lines = [...sample.lines];
+export function sampleSegments(sample: Sample, start = Date.UTC(2026, 0, 5, 1, 0, 0), useGlossary = true): Segment[] {
+  const terms = useGlossary ? sample.glossary ?? [] : [];
+  const lines = sample.lines.map(([src, t]): [SegmentSource, string] => [src, correctTerms(t, terms)]);
   const filler = sample.filler ?? 0;
   if (filler) {
     const out: [SegmentSource, string][] = [];

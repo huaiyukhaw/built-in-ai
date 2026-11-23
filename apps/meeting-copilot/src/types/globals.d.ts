@@ -83,6 +83,8 @@ interface SpeechRecognition extends EventTarget {
   continuous: boolean;
   interimResults: boolean;
   processLocally?: boolean;
+  /** Chrome 157, on-device only: words to favour (contextual biasing). */
+  phrases?: SpeechRecognitionPhrase[];
   onresult: ((e: SpeechRecognitionEvent) => void) | null;
   onerror: ((e: SpeechRecognitionErrorEvent) => void) | null;
   onend: (() => void) | null;
@@ -91,6 +93,8 @@ interface SpeechRecognition extends EventTarget {
   stop(): void;
   abort(): void;
 }
+interface SpeechRecognitionPhrase { readonly phrase: string; readonly boost: number }
+declare var SpeechRecognitionPhrase: { new (phrase: string, boost?: number): SpeechRecognitionPhrase } | undefined;
 interface SpeechRecognitionStatic {
   new (): SpeechRecognition;
   available?(o: { langs: string[]; processLocally: boolean }): Promise<AIAvailability>;

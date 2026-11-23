@@ -1,0 +1,25 @@
+{
+  "id": "misheard-terms",
+  "about": "Names and terms as Web Speech mishears them (\"Mutu Kumar\", \"Razaly\", \"red only\", \"gira\"); the glossary should give owners and terms their right spelling.",
+  "lines": [
+    ["mic", "Morning. Quick one on the payment rollout."],
+    ["tab", "Hi, Mutu Kumar here. The fpx sandbox is working again. I will run the regression by Thursday."],
+    ["mic", "Great. Razaly, can you keep the old checkout red only until the rollout?"],
+    ["tab", "Yes, I'll switch it to red only on Monday."],
+    ["mic", "Nurul Ein, can you log the open defects in gira by Friday?"],
+    ["tab", "Will do, I'll log them in gira today and finish by Friday."],
+    ["mic", "We agreed to go live on the fifteenth if the regression passes."]
+  ],
+  "glossary": ["Muthukumar", "Razali", "Nurul Ain", "FPX", "read-only", "Jira"],
+  "expect": {
+    "decisions": [{ "keys": ["live|launch|rollout", "15|fifteenth"] }],
+    "actionItems": [
+      { "keys": ["regression"], "owner": "Muthukumar", "due": "thursday" },
+      { "keys": ["read only|checkout"], "owner": "Razali", "due": "monday" },
+      { "keys": ["defect"], "owner": "Nurul Ain|Nurul", "due": "friday" }
+    ],
+    "openQuestions": [],
+    "forbidText": ["Mutu", "Razaly", "Ein", "red only", "gira"],
+    "summary": ["regression", "defect"]
+  }
+}

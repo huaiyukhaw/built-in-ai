@@ -1,7 +1,8 @@
 // App chrome: top app bar, icons, snackbar and the Settings dialog.
 import { availability, type Availability } from '../lib/ai';
 import { CAPTION_LANGS, SPOKEN_LOCALES } from '../lib/model';
-import { getLangPrefs, getSchemePref, resolvedScheme, setLangPrefs, setSchemePref, watchScheme, type SchemePref } from '../lib/prefs';
+import { parseTerms } from '../lib/glossary';
+import { getDefaultGlossary, getLangPrefs, getSchemePref, resolvedScheme, setDefaultGlossary, setLangPrefs, setSchemePref, watchScheme, type SchemePref } from '../lib/prefs';
 import { h } from './dom';
 
 /** Decorative Material Symbol; the control around it carries the accessible name. */
@@ -157,6 +158,10 @@ export function openSettings() {
   spoken.addEventListener('change', saveLangs);
   caption.addEventListener('change', saveLangs);
 
+  const terms = h('textarea', { class: 'field', id: 'pref-glossary', rows: '3', placeholder: 'Company names, product names, colleagues' }) as HTMLTextAreaElement;
+  terms.value = getDefaultGlossary().join(', ');
+  terms.addEventListener('change', () => setDefaultGlossary(parseTerms(terms.value)));
+
   dialog = h('dialog', { class: 'settings', 'aria-labelledby': 'settings-title', closedby: 'any' },
     h('div', { class: 'dialog-head' },
       h('h2', { id: 'settings-title' }, 'Settings'),
@@ -172,7 +177,10 @@ export function openSettings() {
       h('h3', { id: 'set-lang' }, 'New meetings'),
       h('div', { class: 'two' },
         h('div', {}, h('label', { class: 'field-label', for: 'pref-spoken' }, 'Spoken in'), spoken),
-        h('div', {}, h('label', { class: 'field-label', for: 'pref-caption' }, 'Captions in'), caption))));
+        h('div', {}, h('label', { class: 'field-label', for: 'pref-caption' }, 'Captions in'), caption)),
+      h('label', { class: 'field-label', for: 'pref-glossary' }, 'Names and terms for every meeting, separated by commas'),
+      terms,
+      h('p', { class: 'muted' }, 'Helps captions, answers and minutes spell them right. Each meeting can add its own in the Agenda tab.')));
   document.body.append(dialog);
   dialog.addEventListener('close', () => dialog?.remove());
   dialog.showModal();

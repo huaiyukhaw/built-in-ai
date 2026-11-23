@@ -55,6 +55,17 @@ export function setLangPrefs(p: LangPrefs) {
   try { localStorage.setItem(LANG_KEY, JSON.stringify(p)); } catch { /* ignore */ }
 }
 
+const GLOSSARY_KEY = 'meeting-copilot:glossary';
+
+/** Names and terms added to every new meeting (Settings). */
+export function getDefaultGlossary(): string[] {
+  try { const v = JSON.parse(localStorage.getItem(GLOSSARY_KEY) ?? '[]'); return Array.isArray(v) ? v.filter((t) => typeof t === 'string') : []; } catch { return []; }
+}
+
+export function setDefaultGlossary(terms: string[]) {
+  try { localStorage.setItem(GLOSSARY_KEY, JSON.stringify(terms)); } catch { /* ignore */ }
+}
+
 /** Where remote speakers are: a meeting in a browser tab, or a desktop app captured via system audio. */
 export type RemoteKind = 'tab' | 'screen';
 const REMOTE_KEY = 'meeting-copilot:remote-kind';

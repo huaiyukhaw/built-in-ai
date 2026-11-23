@@ -58,6 +58,8 @@ export interface Meeting {
   agenda?: string[];
   /** Planned length, for "10 min left · 2 items not covered" */
   plannedMinutes?: number;
+  /** Names and terms, spelled as they should appear (speech hints, prompts, corrections) */
+  glossary?: string[];
 }
 
 export const SPOKEN_LOCALES: { locale: string; label: string }[] = [

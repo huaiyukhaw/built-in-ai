@@ -86,7 +86,7 @@ Six samples in `test/evals/samples/`, scorer in `src/eval/score.ts`, runner at `
 
 ## Round 2: make it stand out
 
-**Build order (agreed 2026-11-22):** #2 ✅ → #4 Speaker names ✅ → #1 Duplicate lines ✅ → #5 Agenda tracker ✅ → #11 Glossary → #12 Slide-aware notes. Each feature gets its own commit.
+**Build order (agreed 2026-11-22):** #2 ✅ → #4 Speaker names ✅ → #1 Duplicate lines ✅ → #5 Agenda tracker ✅ → #11 Glossary ✅ → #12 Slide-aware notes. Each feature gets its own commit.
 
 Other ideas from the same brainstorm, not yet scheduled: open existing recordings or transcripts (File Handling / Share Target), "someone said your name" alerts (Notifications + Badging), action items across meetings, ask by voice with a spoken answer, live interpreting into earphones, chapters with an optional local recording, whiteboard photo into the minutes, Writer/Rewriter follow-up email, slowing background work when the CPU is under pressure.
 
@@ -151,14 +151,25 @@ Clicking the remote-captions button now asks **"Where is your meeting?"**: in a 
 - **Bug fixed on the way:** the Translator was created only after two `availability()` checks, and by then the share picker had used up the click's user activation. A first-time translation download then failed, every caption said "Translation unavailable", and the failure was cached. Translators are now created straight away inside the click, and failures other than "unsupported pair" are retried on the next click.
 - **Checked by hand:** a real Teams desktop call with "Share system audio" ticked works.
 
-### 11. Glossary for better captions · size S
-Proper nouns are where captions go wrong: "read-only" heard as "red only", Malaysian names, project terms like "FPX" or "IC numbers".
-- A glossary per meeting (names, project terms), pre-filled from the last meeting with the same title and from a default list in Settings.
-- Remote audio: add the glossary to the Prompt API transcription prompt ("these words may appear: …").
-- Room mic: pass the terms to Web Speech as phrase hints where Chrome supports them; otherwise fix obvious near-misses after the fact.
-- Q&A and minutes get the glossary too, so names are spelled the same everywhere.
-- Fits with #4: speaker names found by introductions are added to the glossary automatically.
-- Check: re-run the e2e audio test with "read-only" in the glossary, and add an eval sample with unusual names.
+### 11. Glossary for better captions · ✅ done 2026-11-23
+**What was built** (`src/lib/glossary.ts`, `src/ui/glossary-panel.ts`):
+- **Names and terms** section in the Agenda tab: add terms separated by commas, remove with ×. Settings has terms for every new meeting. If an earlier meeting has the same title, a button adds its terms.
+- **Speaker names** found by introductions or renames are added automatically.
+- **Room mic:** Chrome 157 supports `SpeechRecognitionPhrase` hints with on-device recognition (checked: no error, `phrases` accepted). Terms are set on every recognition restart, so edits apply mid-meeting.
+- **Remote audio:** each clip's prompt lists the terms, with "do not write any of them unless they are spoken".
+- **Correction after the fact:** finished lines are corrected to the listed spelling. Short terms only fix case, spaces and hyphens ("fpx" → "FPX", "red only" → "read-only"); longer ones allow one wrong letter in five with the same first letter ("Muthukumer" → "Muthukumar"). Never across punctuation.
+- **Q&A, catch-up and minutes** get the terms in their prompts and Summarizer context.
+
+**Results** (eval sample `misheard-terms`, Chrome 157, 3 runs each):
+
+| | No glossary | With glossary |
+|---|---|---|
+| Owners right | 1/3 every run | **3/3 every run** |
+| Misheard spellings in the minutes | 5 per run | 1 per run |
+
+- **The one left is "gira" for "Jira":** too short to correct safely (it would also turn "city" into "Siti"), and the model copied "gira" despite the terms line. Short names and terms that are misheard with a different first letter still need the user to fix them.
+- **In the demo:** typed terms showed as chips, and Kumar, Wei Ming and Ahmad were added as they introduced themselves.
+- **Not verified:** whether the Web Speech hints change what is recognised. The fake mic in the test Chrome can't produce a misheard word on demand, so only "accepted without error" was checked.
 
 ### 12. Slide-aware notes · size M
 The screen or tab share already includes video, which the app currently ignores.

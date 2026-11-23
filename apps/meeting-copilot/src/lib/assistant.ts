@@ -2,6 +2,7 @@
 import { agendaStatus, checkFromNumbers, groundCheck, uncoveredQuestions, type AgendaCheck } from './agenda';
 import { AiUnavailableError, contextWindow, create, type Progress } from './ai';
 import { modelGate } from './gate';
+import { termsLine } from './glossary';
 import { dropContextItems, mergeExtractions, type Extracted } from './merge';
 import type { Minutes, MinutesWindow, Segment } from './model';
 import { speakerLabel } from './speakers';
@@ -72,7 +73,21 @@ export class Assistant {
   #agendaBase?: Promise<LanguageModelSession>;
   #summarizers = new Map<string, Promise<SummarizerSession>>();
 
+  /** The meeting's names and terms, given to Q&A, catch-up and minutes so spelling stays consistent. */
+  glossary: string[] = [];
+
   constructor(private onProgress?: Progress) {}
+
+  /** Glossary line plus a blank line to put before a prompt's input, or "". */
+  #terms() {
+    const line = termsLine(this.glossary);
+    return line ? `${line}\n\n` : '';
+  }
+
+  /** Extra Summarizer context naming the glossary terms. */
+  #termsContext() {
+    return this.glossary.length ? ` Names and terms in this meeting, spelled correctly: ${this.glossary.join(', ')}.` : '';
+  }
 
   /** Pre-download models from a user gesture so later calls are instant. */
   async warmUp() {
@@ -146,7 +161,7 @@ export class Assistant {
       try {
         const transcript = formatTranscript(fitRecent(segments, charBudget(contextWindow(s))));
         let full = '';
-        for await (const chunk of s.promptStreaming(`TRANSCRIPT:\n${transcript}\n\nQUESTION: ${question}`, { signal })) {
+        for await (const chunk of s.promptStreaming(`${this.#terms()}TRANSCRIPT:\n${transcript}\n\nQUESTION: ${question}`, { signal })) {
           full += chunk;
           onText(full);
         }
@@ -165,7 +180,7 @@ export class Assistant {
       const s = await this.#summarizer('key-points', 'short');
       const text = await this.#fitForSummarizer(s, recent);
       let full = '';
-      for await (const chunk of s.summarizeStreaming(text, { context: `Summarize only what happened in these last ${minutes} minutes for someone who just tuned back in.` })) {
+      for await (const chunk of s.summarizeStreaming(text, { context: `Summarize only what happened in these last ${minutes} minutes for someone who just tuned back in.${this.#termsContext()}` })) {
         full += chunk;
         onText(full);
       }
@@ -193,7 +208,7 @@ export class Assistant {
   async processWindow(segments: Segment[], range: WindowRange, signal?: AbortSignal, agenda: string[] = []): Promise<MinutesWindow> {
     const part = segments.slice(range.from, range.to);
     const summarizer = await this.#summarizer('key-points', 'long');
-    const summary = await summarizer.summarize(formatTranscript(part), { signal });
+    const summary = await summarizer.summarize(formatTranscript(part), { signal, ...(this.glossary.length ? { context: this.#termsContext().trim() } : {}) });
 
     let base: LanguageModelSession;
     try {
@@ -204,7 +219,7 @@ export class Assistant {
       return { ...range, summary, decisions: [], actionItems: [], openQuestions: [], extracted: false };
     }
     const earlier = segments.slice(Math.max(0, range.from - CONTEXT_LINES), range.from);
-    const input = (earlier.length ? `EARLIER CONTEXT:\n${formatTranscript(earlier)}\n\n` : '') + `TRANSCRIPT:\n${formatTranscript(part)}`;
+    const input = this.#terms() + (earlier.length ? `EARLIER CONTEXT:\n${formatTranscript(earlier)}\n\n` : '') + `TRANSCRIPT:\n${formatTranscript(part)}`;
     const s = await base.clone({ signal });
     try {
       const said = (list: Segment[]) => list.map((l) => `${speakerLabel(l)} ${l.text}`);
@@ -231,7 +246,7 @@ export class Assistant {
     const focus = [...x.decisions, ...x.actionItems.map((a) => `${a.owner ? `${a.owner}: ` : ''}${a.task}`)].slice(0, 15);
     return s.summarize(parts.join('\n'), {
       context: 'These are key points from consecutive parts of one meeting, in order. Merge them into one set of key points. ' +
-        'Lead with what was decided or assigned; leave out routine status updates.' +
+        'Lead with what was decided or assigned; leave out routine status updates.' + this.#termsContext() +
         (focus.length ? ` Decisions and action items found in the meeting: ${focus.join('; ')}.` : ''),
     });
   }

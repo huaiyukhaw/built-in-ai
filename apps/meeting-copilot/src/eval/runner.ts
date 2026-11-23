@@ -31,6 +31,8 @@ const baseline = Object.values(import.meta.glob<EvalRun>('../../test/evals/resul
 const params = new URLSearchParams(location.search);
 const only = params.get('only')?.split(',');
 const selected = only ? samples.filter((s) => only.includes(s.id)) : samples;
+/** ?noglossary: run without the samples' glossaries, to measure what they add. */
+const useGlossary = !params.has('noglossary');
 
 window.evalState = { running: false, done: false, stage: 'idle' };
 
@@ -132,7 +134,8 @@ async function run() {
     try {
       const ws: MinutesWindow[] = [];
       windows[sample.id] = ws;
-      const m = await assistant.minutes(sampleSegments(sample), (msg) => { stages.push(msg); setStage(`${i + 1}/${selected.length} ${sample.id}: ${msg}`); }, ws, sample.agenda);
+      assistant.glossary = useGlossary ? sample.glossary ?? [] : [];
+      const m = await assistant.minutes(sampleSegments(sample, undefined, useGlossary), (msg) => { stages.push(msg); setStage(`${i + 1}/${selected.length} ${sample.id}: ${msg}`); }, ws, sample.agenda);
       outputs[sample.id] = m;
       scores.push(scoreMinutes(sample, m, performance.now() - t0, stages, sample.agenda ? agendaStatus(sample.agenda, ws) : undefined));
     } catch (err) {
