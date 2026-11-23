@@ -42,6 +42,9 @@ if [[ ! -d "$PROFILE/OptGuideOnDeviceModel" ]]; then
 fi
 
 args=(--remote-debugging-port=$PORT "--user-data-dir=$(win "$PROFILE")" --no-first-run --no-default-browser-check)
+# Keep pages running at full speed when the window is behind other windows (timers, canvas, video),
+# so tests behave the same whether or not the test window is in front.
+args+=(--disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling)
 url="${APP_URL:-http://localhost:4173/?demo}"
 
 if [[ "$MODE" == "audio" ]]; then

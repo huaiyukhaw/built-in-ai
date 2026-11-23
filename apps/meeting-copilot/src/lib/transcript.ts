@@ -68,6 +68,7 @@ export function matchesQuery(m: Meeting, query: string): boolean {
     ...(m.minutes?.decisions ?? []),
     ...(m.minutes?.actionItems ?? []).flatMap((a) => [a.owner, a.task, a.due]),
     ...(m.minutes?.openQuestions ?? []),
+    ...(m.slides ?? []).flatMap((s) => [s.title, ...s.points]),
   ].join('\n').toLowerCase();
   return q.split(/\s+/).every((term) => hay.includes(term));
 }

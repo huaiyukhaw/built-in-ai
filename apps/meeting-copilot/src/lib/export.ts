@@ -1,6 +1,7 @@
 import { agendaStatus, type AgendaStatus } from './agenda';
 import type { Meeting } from './model';
 import { parseMarkdown, type Inline } from './markdown';
+import { slideLine } from './slides';
 import { clock, durationLabel, formatTranscript } from './transcript';
 
 const AGENDA_LABEL: Record<AgendaStatus, string> = { decided: 'decided', discussed: 'discussed', open: 'not covered' };
@@ -23,6 +24,7 @@ export function toMarkdown(m: Meeting, { includeTranscript = true } = {}): strin
       ? m.minutes.actionItems.map((a) => `- [ ] **${a.owner || 'Unassigned'}**: ${a.task}${a.due ? ` _(due ${a.due})_` : ''}`)
       : ['- None recorded']), '');
     if (m.minutes.openQuestions.length) lines.push('## Open questions', ...m.minutes.openQuestions.map((q) => `- ${q}`), '');
+    if (m.slides?.length) lines.push('## Slides shown', ...m.slides.map((s) => `- ${slideLine(s)}`), '');
   }
   if (includeTranscript && m.segments.length) lines.push('## Transcript', '```', formatTranscript(m.segments), '```', '');
   return lines.join('\n');
@@ -65,6 +67,7 @@ export function toHtml(m: Meeting, { includeTranscript = false } = {}): string {
       }</tbody></table>`
       : '<p>None recorded.</p>');
     if (m.minutes.openQuestions.length) parts.push(`<h3>Open questions</h3><ul>${m.minutes.openQuestions.map((q) => `<li>${esc(q)}</li>`).join('')}</ul>`);
+    if (m.slides?.length) parts.push(`<h3>Slides shown</h3><ul>${m.slides.map((s) => `<li>${esc(slideLine(s))}</li>`).join('')}</ul>`);
   }
   if (includeTranscript && m.segments.length) {
     parts.push(`<h3>Transcript</h3><p style="font-family:Consolas,monospace;font-size:12px">${

@@ -105,6 +105,9 @@ interface Window {
   webkitSpeechRecognition?: SpeechRecognitionStatic;
 }
 
+// ---- MediaStreamTrackProcessor (Chromium, also on Window) ----
+declare var MediaStreamTrackProcessor: { new (init: { track: MediaStreamTrack }): { readable: ReadableStream<VideoFrame> } } | undefined;
+
 // ---- Document Picture-in-Picture ----
 interface DocumentPictureInPicture extends EventTarget {
   requestWindow(options?: { width?: number; height?: number; disallowReturnToOpener?: boolean }): Promise<Window>;

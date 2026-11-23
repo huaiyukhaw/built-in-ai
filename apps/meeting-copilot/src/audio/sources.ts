@@ -129,6 +129,8 @@ export type RemoteSurface = 'browser' | 'window' | 'monitor';
 export interface RemoteSource extends AudioSource {
   /** What the user actually picked: a tab, one window, or a whole screen (system audio). */
   readonly surface: RemoteSurface | undefined;
+  /** The shared picture, watched for slides; stops with the source. */
+  readonly video: MediaStreamTrack | undefined;
 }
 
 /** Why a share came back without audio, phrased for what was picked. */
@@ -218,5 +220,5 @@ export async function startTabAudio(transcriber: Promise<LanguageModelSession>, 
   };
   audio.addEventListener('ended', () => { stop(); ev.onEnded?.(); });
 
-  return { local: true, surface, stop };
+  return { local: true, surface, video, stop };
 }

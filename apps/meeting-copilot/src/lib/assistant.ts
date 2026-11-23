@@ -4,7 +4,8 @@ import { AiUnavailableError, contextWindow, create, type Progress } from './ai';
 import { modelGate } from './gate';
 import { termsLine } from './glossary';
 import { dropContextItems, mergeExtractions, type Extracted } from './merge';
-import type { Minutes, MinutesWindow, Segment } from './model';
+import type { Minutes, MinutesWindow, Segment, Slide } from './model';
+import { cleanRead, formatSlides, SLIDE_REQUEST, SLIDE_SCHEMA, type SlideRead } from './slides';
 import { speakerLabel } from './speakers';
 import { charBudget, fitRecent, formatTranscript, lastMinutes, planWindows, type WindowRange } from './transcript';
 
@@ -71,6 +72,7 @@ export class Assistant {
   #qaBase?: Promise<LanguageModelSession>;
   #extractBase?: Promise<LanguageModelSession>;
   #agendaBase?: Promise<LanguageModelSession>;
+  #slideBases = new Map<string, Promise<LanguageModelSession>>();
   #summarizers = new Map<string, Promise<SummarizerSession>>();
 
   /** The meeting's names and terms, given to Q&A, catch-up and minutes so spelling stays consistent. */
@@ -99,7 +101,8 @@ export class Assistant {
       ...TEXT_EN,
       initialPrompts: [{ role: 'system', content:
         'You answer questions about a live meeting using ONLY the transcript provided. ' +
-        'Cite the [HH:MM:SS] timestamp of the lines you rely on. If the transcript does not contain the answer, say so plainly. Be brief.' }],
+        'Cite the [HH:MM:SS] timestamp of the lines you rely on. SLIDES are what was on the shared screen from that time. ' +
+        'If the transcript and slides do not contain the answer, say so plainly. Be brief.' }],
     }, this.onProgress);
     this.#qaBase.catch(() => { this.#qaBase = undefined; });
     return this.#qaBase;
@@ -152,16 +155,46 @@ export class Assistant {
     return this.#summarizers.get(key)!;
   }
 
-  /** Stream an answer to a question about the meeting so far. */
-  ask(question: string, segments: Segment[], onText: (t: string) => void, signal?: AbortSignal): Promise<string> {
-    if (!segments.length) return Promise.resolve('Nothing has been transcribed yet.');
+  #slideReader(lang: string) {
+    if (!this.#slideBases.has(lang)) {
+      const p = create<LanguageModelSession>('LanguageModel', {
+        expectedInputs: [{ type: 'image' }, { type: 'text', languages: ['en'] }],
+        expectedOutputs: [{ type: 'text', languages: [lang] }],
+      }, this.onProgress);
+      p.catch(() => this.#slideBases.delete(lang));
+      this.#slideBases.set(lang, p);
+    }
+    return this.#slideBases.get(lang)!;
+  }
+
+  /**
+   * Read a frame of the shared screen: its title and main points, written in `lang` (a Prompt API
+   * output language). Null when it isn't a slide or document. Run it as background work.
+   */
+  async readSlide(frame: ImageBitmapSource, lang: string, signal?: AbortSignal): Promise<{ title: string; points: string[] } | null> {
+    const base = await this.#slideReader(lang);
+    const s = await base.clone({ signal });
+    try {
+      const out = await s.prompt([{ role: 'user', content: [{ type: 'text', value: SLIDE_REQUEST }, { type: 'image', value: frame }] }], { responseConstraint: SLIDE_SCHEMA, signal });
+      return cleanRead(JSON.parse(out) as SlideRead);
+    } finally {
+      s.destroy();
+    }
+  }
+
+  /** Stream an answer to a question about the meeting so far, from the transcript and the slides shown. */
+  ask(question: string, segments: Segment[], onText: (t: string) => void, signal?: AbortSignal, slides: Slide[] = []): Promise<string> {
+    if (!segments.length && !slides.length) return Promise.resolve('Nothing has been transcribed yet.');
     return modelGate.urgent(async () => {
       const base = await this.#qa();
       const s = await base.clone({ signal });
       try {
-        const transcript = formatTranscript(fitRecent(segments, charBudget(contextWindow(s))));
+        const budget = charBudget(contextWindow(s));
+        const shown = formatSlides(slides, Math.floor(budget / 4));
+        const transcript = formatTranscript(fitRecent(segments, budget - shown.length));
+        const input = this.#terms() + (shown ? `SLIDES:\n${shown}\n\n` : '') + `TRANSCRIPT:\n${transcript || '(nothing said yet)'}\n\nQUESTION: ${question}`;
         let full = '';
-        for await (const chunk of s.promptStreaming(`${this.#terms()}TRANSCRIPT:\n${transcript}\n\nQUESTION: ${question}`, { signal })) {
+        for await (const chunk of s.promptStreaming(input, { signal })) {
           full += chunk;
           onText(full);
         }

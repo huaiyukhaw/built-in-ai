@@ -23,7 +23,7 @@ Check model status at `chrome://on-device-internals`. The first use of each API 
 
 ```bash
 powershell -File test/e2e/make-audio.ps1     # one-time: spoken meeting WAVs via Windows TTS
-npx serve test/e2e -l 4180                   # fake "meeting tab" that plays remote.wav
+npx serve test/e2e -l 4180                   # fake "meeting tab" that plays remote.wav (?slides adds a slide deck)
 bash test/e2e/chrome.sh ai                   # or: bash test/e2e/chrome.sh audio
 ```
 
@@ -66,7 +66,8 @@ bash test/e2e/chrome.sh ai      # then open /eval.html in that window and press 
 | No double lines | When the room mic hears the meeting through the laptop speakers, its copy of a remote line is removed. The mic goes to Web Speech as an echo-cancelled track (`getUserMedia` → `SpeechRecognition.start(track)`), which helps when the meeting plays in Chrome. While remote audio is on, mic lines are shown dimmed for up to 20 s and dropped if a remote line with the same content words arrives (`EchoFilter`); a one-time message suggests headphones |
 | Translated captions | Translator API, one cached translator per language pair, results kept in spoken order |
 | Floating captions | Document Picture-in-Picture: the captions panel moves into an always-on-top window |
-| Ask the meeting | Prompt API answers from the transcript and cites `[HH:MM:SS]` timestamps; long meetings keep the most recent context that fits |
+| Slide-aware notes | The video of a tab or screen share is watched for new slides: every 2 s a 64×36 thumbnail is compared by its "ink" (pixels that stand out from the background), and a full frame is taken only when the picture settles on something new (`SlideDetector`). The Prompt API's **image input** first says what kind of screen it is, then, for a slide, document or spreadsheet, reads the title and main points. Cards appear in the captions at the time the slide was shown, translated into the caption language. A bullet appearing updates the card; going back to an earlier slide adds nothing. Slides feed Q&A and are listed in the minutes. Reading runs as background work, after transcription. Only the text is saved, never the picture |
+| Ask the meeting | Prompt API answers from the transcript and the slides shown, and cites `[HH:MM:SS]` timestamps; long meetings keep the most recent context that fits |
 | Catch me up | Summarizer TL;DR of the last 2 / 5 / 10 minutes |
 | Minutes | Drafted in the background while you're live, ~3 minutes of talk at a time: Summarizer key points plus Prompt API JSON-schema extraction of decisions, action items and open questions. A **So far** list of action items grows in the Minutes tab. End or Generate minutes only reads the rest and merges (near-duplicates collapse; "Room"/"Remote" are never used as owners) |
 | Names and terms | A glossary per meeting in the Agenda tab, plus terms for every meeting in Settings. Speaker names are added when people introduce themselves. The room mic gets them as Web Speech hints (`SpeechRecognitionPhrase`, on-device recognition, Chrome 157), remote audio in the transcription prompt, and Q&A and minutes in their prompts. Finished lines are corrected to the listed spelling ("red only" → "read-only", "fpx" → "FPX"; `correctTerms`). An earlier meeting with the same title offers its terms |
@@ -85,6 +86,7 @@ src/
   lib/agenda.ts       agenda parsing, status, grounding, time box        (tested)
   lib/echo.ts         drop mic lines that echo remote speech             (tested)
   lib/speakers.ts     speaker names from introductions, rename           (tested)
+  lib/slides.ts       new-slide detection, reading schema, one card per slide (tested)
   lib/transcript.ts   pure helpers: format, windowing, chunking, search   (tested)
   lib/ai.ts           availability-with-timeout, create-with-progress
   lib/translate.ts    TranslatorPool
@@ -97,6 +99,7 @@ src/
   lib/db.ts           IndexedDB store + debounced autosave                (tested)
   audio/chunker.ts    pause-based PCM segmentation                        (tested)
   audio/sources.ts    mic (Web Speech) and tab audio (getDisplayMedia → AudioWorklet → Prompt API)
+  audio/slide-watcher.ts  frames of the shared video (MediaStreamTrackProcessor) → SlideDetector
   ui/                 history view, meeting view, PiP, DOM helpers
   eval/               minutes quality scorer (tested) and the /eval.html runner
 public/pcm-worklet.js AudioWorklet that batches PCM to the main thread
@@ -138,8 +141,9 @@ The theme script is `public/theme-init.js` rather than inline, so the policy can
 - **Malay and Tamil** mic speech isn't available on-device and goes to Google's speech service. Malay isn't supported by the Translator.
 - **Q&A and minutes** are tuned for English transcripts.
 - **Speaker names come from what people say**, not from their voices. Several people on one source share the last name heard until someone introduces themselves or is asked by name; click the label to fix it.
+- **Slides are read slowly** while remote audio is busy: 15 s for a slide on its own, 30–90 s when transcription and minutes are also running, because one model does everything. A presenter clicking through faster sees only the last 6 slides read. With an entire-screen share, anything on screen can be read; the model is asked to skip call windows, chats and app screens, but check the cards.
 - **Echo removal matches words, not sound.** A room comment that repeats most of what a remote speaker just said can be removed too, and room lines join the transcript up to 20 s late while remote audio is on. Headphones avoid both.
 
 ## Privacy
 
-Transcripts, translations, answers and minutes are produced on-device and saved only in this browser's IndexedDB. The one exception is mic speech when on-device recognition isn't available: the ☁️ badge shows that Chrome is using Google's speech service.
+Transcripts, translations, slide text, answers and minutes are produced on-device and saved only in this browser's IndexedDB. The one exception is mic speech when on-device recognition isn't available: the ☁️ badge shows that Chrome is using Google's speech service.

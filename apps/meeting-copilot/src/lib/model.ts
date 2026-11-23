@@ -12,6 +12,19 @@ export interface Segment {
   translation?: string | null;
 }
 
+/** A slide or document page read from the shared screen. Only the text is kept, never the picture. */
+export interface Slide {
+  id: string;
+  /** ms since epoch when it appeared on screen */
+  at: number;
+  title: string;
+  points: string[];
+  /** Language the text was read in (the meeting's, when the Prompt API can write it) */
+  lang: string;
+  /** Caption-language translation; undefined while pending or not needed, null if unavailable */
+  translation?: { title: string; points: string[] } | null;
+}
+
 export interface ActionItem { owner: string; task: string; due: string }
 
 export interface Minutes {
@@ -60,6 +73,8 @@ export interface Meeting {
   plannedMinutes?: number;
   /** Names and terms, spelled as they should appear (speech hints, prompts, corrections) */
   glossary?: string[];
+  /** Slides shown in the shared screen, in order */
+  slides?: Slide[];
 }
 
 export const SPOKEN_LOCALES: { locale: string; label: string }[] = [

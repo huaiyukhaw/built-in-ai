@@ -9,7 +9,9 @@ import { mergeExtractions } from '../lib/merge';
 import { EchoFilter } from '../lib/echo';
 import { correctTerms } from '../lib/glossary';
 import { LIVE_WINDOW, RollingMinutes } from '../lib/rolling';
-import { CAPTION_LANGS, langOf, SPOKEN_LOCALES, type Meeting, type Minutes, type Segment, type SegmentSource } from '../lib/model';
+import { CAPTION_LANGS, langOf, PROMPT_LANGS, SPOKEN_LOCALES, type Meeting, type Minutes, type Segment, type SegmentSource, type Slide } from '../lib/model';
+import { placeSlide } from '../lib/slides';
+import { watchSlides, type SlideWatcher } from '../audio/slide-watcher';
 import { nextSpeaker, renameSpeaker, sourceLabel } from '../lib/speakers';
 import { clock } from '../lib/transcript';
 import { TranslatorPool } from '../lib/translate';
@@ -92,7 +94,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     ...[2, 5, 10].map((m) => h('button', { class: 'chip suggestion', type: 'button', dataset: { min: String(m) }, 'aria-label': `Catch me up on the last ${m} minutes` }, icon('spark'), `Last ${m} min`)));
   const panelAsk = h('div', { role: 'tabpanel', id: 'panel-ask', 'aria-labelledby': 'tab-ask' },
     catchUp, askForm,
-    h('p', { class: 'empty-note' }, 'Answers come only from this meeting’s transcript and cite the time they were said.'),
+    h('p', { class: 'empty-note' }, 'Answers come only from this meeting’s transcript and shared slides, and cite the time.'),
     answers);
 
   const minutesBody = h('div', { class: 'minutes' });
@@ -176,7 +178,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   function lineEl(s: Segment) {
     const needsTranslation = langOf(meeting.spokenLocale) !== meeting.captionLang;
     const pending = needsTranslation && s.translation === undefined;
-    return h('li', { class: `line ${s.source}`, id: `seg-${s.id}` },
+    return h('li', { class: `line ${s.source}`, id: `seg-${s.id}`, dataset: { at: String(s.at) } },
       h('button', { class: 'speaker', type: 'button', title: `${s.speaker ? `${s.speaker} · ${sourceLabel(s.source)}` : sourceLabel(s.source)} · rename`, on: { click: () => rename(s) } },
         icon(s.source === 'tab' ? 'present' : 'mic'), s.speaker || sourceLabel(s.source), h('time', {}, clock(s.at))),
       h('span', { class: `main${pending ? ' pending' : ''}`, lang: s.translation ? meeting.captionLang : meeting.spokenLocale },
@@ -188,10 +190,35 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
           : null);
   }
 
+  /** A slide card: the caption-language text, with the slide as written one click away. */
+  function slideEl(s: Slide) {
+    const t = s.translation;
+    const body = (title: string, points: string[], lang: string) => [
+      h('strong', { class: 'slide-title', lang }, title || 'Untitled slide'),
+      points.length ? h('ul', { lang }, ...points.map((p) => h('li', {}, p))) : '',
+    ];
+    const needsTranslation = s.lang !== meeting.captionLang;
+    return h('li', { class: 'slide-card', id: `slide-${s.id}`, dataset: { at: String(s.at) } },
+      h('span', { class: 'slide-head' }, icon('slides'), 'Slide', h('time', {}, clock(s.at))),
+      ...(t ? body(t.title, t.points, meeting.captionLang) : body(s.title, s.points, s.lang)),
+      t ? h('details', { class: 'orig' }, h('summary', {}, 'As shown'), ...body(s.title, s.points, s.lang))
+        : t === null && needsTranslation ? h('span', { class: 'orig' }, h('span', { class: 'tag' }, 'Translation unavailable for this language')) : '');
+  }
+
+  /** Put a card in time order: before the first line or card that came after it. */
+  function placeByTime(el: HTMLElement, at: number) {
+    const after = [...lines.children].find((c) => Number((c as HTMLElement).dataset.at) > at);
+    if (after) after.before(el); else lines.append(el);
+  }
+
   function renderAllLines() {
-    lines.replaceChildren(...meeting.segments.map(lineEl));
-    stageEmpty.hidden = meeting.segments.length > 0;
-    lines.hidden = meeting.segments.length === 0;
+    const items: [number, HTMLElement][] = [
+      ...meeting.segments.map((s): [number, HTMLElement] => [s.at, lineEl(s)]),
+      ...(meeting.slides ?? []).map((s): [number, HTMLElement] => [s.at, slideEl(s)]),
+    ];
+    lines.replaceChildren(...items.sort((a, b) => a[0] - b[0]).map(([, el]) => el));
+    stageEmpty.hidden = items.length > 0;
+    lines.hidden = items.length === 0;
     // Wait for layout (the list may have just been un-hidden) before jumping to the latest line.
     requestAnimationFrame(() => { lines.scrollTop = lines.scrollHeight; });
   }
@@ -263,6 +290,85 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     saver.schedule(meeting);
   }
 
+  // ------------------------------------------------------------ slides in the shared screen
+  // New pictures wait here to be read as background work, so live transcription and anything the
+  // user asked for go first. Only the text is kept; the frame is dropped once read.
+  const MAX_PENDING_FRAMES = 6;
+  const pendingFrames: { frame: ImageBitmap; at: number }[] = [];
+  let slideWatcher: SlideWatcher | undefined;
+  let readingSlides = false;
+  let slidesClosed = false;
+
+  /** The language slides are read in: the meeting's, if the Prompt API can write it. */
+  const slideLang = () => (PROMPT_LANGS.includes(langOf(meeting.spokenLocale)) ? langOf(meeting.spokenLocale) : 'en');
+
+  function onFrame(frame: ImageBitmap, at: number) {
+    pendingFrames.push({ frame, at });
+    // A presenter clicking through quickly: keep the latest pictures.
+    while (pendingFrames.length > MAX_PENDING_FRAMES) pendingFrames.shift()!.frame.close();
+    void readSlides();
+  }
+
+  async function readSlides() {
+    if (readingSlides) return;
+    readingSlides = true;
+    try {
+      while (pendingFrames.length && !slidesClosed) {
+        const { frame, at } = pendingFrames.shift()!;
+        const lang = slideLang();
+        let read: Awaited<ReturnType<Assistant['readSlide']>> | undefined;
+        for (let attempt = 0; attempt < 5 && read === undefined && !slidesClosed; attempt++) {
+          try {
+            read = await modelGate.background((signal) => assistant.readSlide(frame, lang, signal));
+          } catch (err) {
+            if (!isAbort(err)) { console.warn('Slide reading failed', err); break; }
+          }
+        }
+        frame.close();
+        if (read) addSlide({ id: crypto.randomUUID(), at, lang, ...read });
+      }
+    } finally {
+      readingSlides = false;
+    }
+  }
+
+  function addSlide(slide: Slide) {
+    const slides = (meeting.slides ??= []);
+    const where = placeSlide(slides, slide);
+    if (where === 'skip') return;
+    if (where === 'update') {
+      const last = slides.at(-1)!;
+      Object.assign(last, { title: slide.title, points: slide.points, translation: undefined });
+      document.getElementById(`slide-${last.id}`)?.replaceWith(slideEl(last));
+      void translateSlide(last);
+    } else {
+      slides.push(slide);
+      stageEmpty.hidden = true;
+      lines.hidden = false;
+      const stick = nearBottom();
+      placeByTime(slideEl(slide), slide.at);
+      if (stick) lines.scrollTop = lines.scrollHeight;
+      void translateSlide(slide);
+    }
+    saver.schedule(meeting);
+  }
+
+  /** Translate a slide into the caption language (same Translator pool and queue as captions). */
+  async function translateSlide(s: Slide) {
+    if (s.lang === meeting.captionLang) return;
+    const parts = await Promise.all([s.title, ...s.points].map((t) => (t ? translator.translate(t, s.lang, meeting.captionLang) : Promise.resolve(''))));
+    s.translation = parts.some((p) => p === null) ? null : { title: parts[0] ?? '', points: parts.slice(1).map((p) => p ?? '') };
+    const stick = nearBottom();
+    document.getElementById(`slide-${s.id}`)?.replaceWith(slideEl(s));
+    if (stick) lines.scrollTop = lines.scrollHeight;
+    saver.schedule(meeting);
+  }
+
+  function stopSlides() {
+    slideWatcher?.stop();
+    slideWatcher = undefined;
+  }
+
   // ------------------------------------------------------------ sources
   async function updateWakeLock() {
     if (sources.size && !wakeLock && 'wakeLock' in navigator && document.visibilityState === 'visible') {
@@ -296,7 +402,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     if (!sources.has(kind)) return;
     sources.get(kind)?.stop();
     sources.delete(kind);
-    if (kind === 'tab') echo.flush();
+    if (kind === 'tab') { echo.flush(); stopSlides(); }
     (kind === 'mic' ? micBtn : tabBtn).setAttribute('aria-pressed', 'false');
     interim.textContent = '';
     meeting.endedAt = Date.now();
@@ -340,6 +446,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
       transcriber.catch(() => {}); // surfaced through startTabAudio below
       const src = await startTabAudio(transcriber, sourceEvents('tab'), kind, terms);
       sources.set('tab', src);
+      if (src.video) slideWatcher = watchSlides(src.video, onFrame);
       tabBtn.setAttribute('aria-pressed', 'true');
       refreshLive();
       snackbar(src.surface === 'monitor'
@@ -366,11 +473,13 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     void translator.prepare(langOf(meeting.spokenLocale), meeting.captionLang);
     // Re-translate existing lines into the new caption language.
     for (const s of meeting.segments) s.translation = undefined;
+    for (const s of meeting.slides ?? []) s.translation = undefined;
     renderAllLines();
     for (const s of meeting.segments) {
       s.translation = await translator.translate(s.text, langOf(meeting.spokenLocale), meeting.captionLang);
       document.getElementById(`seg-${s.id}`)?.replaceWith(lineEl(s));
     }
+    for (const s of meeting.slides ?? []) { s.translation = undefined; await translateSlide(s); }
     saver.schedule(meeting);
   });
 
@@ -413,8 +522,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     question.value = '';
     const out = answerCard(q);
     try {
-      const final = await assistant.ask(q, meeting.segments, out.update);
-      if (final && !meeting.segments.length) out.text(final);
+      const final = await assistant.ask(q, meeting.segments, out.update, undefined, meeting.slides);
+      if (final && !meeting.segments.length && !meeting.slides?.length) out.text(final);
     } catch (err) {
       out.text(err instanceof AiUnavailableError ? err.message : `Couldn’t answer: ${(err as Error).message}`);
     }
@@ -507,6 +616,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
       h('h3', {}, 'Action items'),
       m.actionItems.length ? actionTable(m.actionItems) : h('p', { class: 'empty-note' }, 'None recorded.'),
       h('h3', {}, 'Open questions'), list(m.openQuestions),
+      meeting.slides?.length ? h('h3', {}, 'Slides shown') : '',
+      meeting.slides?.length ? h('ul', { class: 'slides-shown' }, ...meeting.slides.map((x) => h('li', {}, h('time', {}, clock(x.at)), ' ', x.translation?.title || x.title || 'Untitled slide'))) : '',
       m.partial ? h('div', { class: 'banner' }, icon('info'), h('div', {}, m.partial)) : '',
       h('p', { class: 'note' }, `Generated ${new Date(m.generatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} from ${meeting.segments.length} lines · review before sending`));
     (exportBar.querySelector('#mailto') as HTMLAnchorElement).href = mailtoUrl(meeting);
@@ -598,13 +709,42 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     ];
     const demoBtn = h('button', { class: 'ctl', 'aria-label': 'Play demo transcript', title: 'Play demo transcript' }, icon('play'));
     centerCtl.append(demoBtn);
+    // Slides "shared" alongside the demo transcript: drawn on a canvas and watched like a real share.
+    const DEMO_SLIDES: { atLine: number; title: string; points: string[] }[] = [
+      { atLine: 0, title: 'Customer Portal Go-Live', points: ['Target go-live: 3 February', 'Backend: 95% complete', 'Open risk: FPX payment gateway in UAT'] },
+      { atLine: 2, title: 'FPX Payment Gateway', points: ['UAT failing since 14 January', 'Cause: bank certificate expired', 'New certificate expected Wednesday', 'Fallback: go-live on 10 February'] },
+      { atLine: 6, title: 'Data Migration', points: ['Records migrated: 80% (412,000 of 515,000)', 'Duplicate IC numbers: 3,200 need manual review', 'Ask: 2 operations staff for 3 days'] },
+    ];
+    const LINE_MS = 1200;
+    const LEAD_MS = 2000; // the first slide is up before anyone speaks
+    const demoSlides = () => {
+      const canvas = Object.assign(document.createElement('canvas'), { width: 1280, height: 720 });
+      const g = canvas.getContext('2d')!;
+      let current = DEMO_SLIDES[0];
+      const draw = () => {
+        g.fillStyle = '#ffffff'; g.fillRect(0, 0, 1280, 720);
+        g.fillStyle = '#0b57d0'; g.fillRect(0, 0, 1280, 16);
+        g.fillStyle = '#1f1f1f'; g.font = 'bold 60px Segoe UI, Arial, sans-serif'; g.fillText(current.title, 90, 150);
+        g.font = '40px Segoe UI, Arial, sans-serif';
+        current.points.forEach((p, i) => g.fillText(`•  ${p}`, 110, 280 + i * 85));
+      };
+      draw();
+      const track = canvas.captureStream(5).getVideoTracks()[0];
+      const repaint = setInterval(draw, 300); // a canvas stream only sends frames when it is painted
+      slideWatcher?.stop();
+      const watcher = watchSlides(track, onFrame, 1000);
+      slideWatcher = { stop() { watcher.stop(); clearInterval(repaint); track.stop(); } };
+      for (const s of DEMO_SLIDES.slice(1)) setTimeout(() => { current = s; }, LEAD_MS + s.atLine * LINE_MS);
+      setTimeout(stopSlides, LEAD_MS + DEMO.length * LINE_MS + 4000);
+    };
     demoBtn.addEventListener('click', () => {
       demoBtn.disabled = true;
       void translator.prepare(langOf(meeting.spokenLocale), meeting.captionLang);
       void assistant.warmUp();
       rolling.start(); // the demo has no live source, so draft minutes as if it did
-      DEMO.forEach(([src, t], i) => setTimeout(() => addSegment(src, t), i * 1200));
-      setTimeout(() => { demoBtn.disabled = false; }, DEMO.length * 1200);
+      demoSlides();
+      DEMO.forEach(([src, t], i) => setTimeout(() => addSegment(src, t), LEAD_MS + i * LINE_MS));
+      setTimeout(() => { demoBtn.disabled = false; }, LEAD_MS + DEMO.length * LINE_MS);
     });
   }
 
@@ -619,6 +759,9 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     for (const k of [...sources.keys()]) stopSource(k);
     echo.flush();
     echo.dispose();
+    slidesClosed = true;
+    stopSlides();
+    for (const f of pendingFrames.splice(0)) f.frame.close();
     clearInterval(agendaTimer);
     recheckRun++;
     removeEventListener('beforeunload', beforeUnload);

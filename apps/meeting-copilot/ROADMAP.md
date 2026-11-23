@@ -86,7 +86,7 @@ Six samples in `test/evals/samples/`, scorer in `src/eval/score.ts`, runner at `
 
 ## Round 2: make it stand out
 
-**Build order (agreed 2026-11-22):** #2 ✅ → #4 Speaker names ✅ → #1 Duplicate lines ✅ → #5 Agenda tracker ✅ → #11 Glossary ✅ → #12 Slide-aware notes. Each feature gets its own commit.
+**Build order (agreed 2026-11-22):** #2 ✅ → #4 Speaker names ✅ → #1 Duplicate lines ✅ → #5 Agenda tracker ✅ → #11 Glossary ✅ → #12 Slide-aware notes ✅. Each feature gets its own commit.
 
 Other ideas from the same brainstorm, not yet scheduled: open existing recordings or transcripts (File Handling / Share Target), "someone said your name" alerts (Notifications + Badging), action items across meetings, ask by voice with a spoken answer, live interpreting into earphones, chapters with an optional local recording, whiteboard photo into the minutes, Writer/Rewriter follow-up email, slowing background work when the CPU is under pressure.
 
@@ -171,7 +171,7 @@ Clicking the remote-captions button now asks **"Where is your meeting?"**: in a 
 - **In the demo:** typed terms showed as chips, and Kumar, Wei Ming and Ahmad were added as they introduced themselves.
 - **Not verified:** whether the Web Speech hints change what is recognised. The fake mic in the test Chrome can't produce a misheard word on demand, so only "accepted without error" was checked.
 
-### 12. Slide-aware notes · size M
+### 12. Slide-aware notes · size M · ✅ done 2026-11-23
 The screen or tab share already includes video, which the app currently ignores.
 - Watch the shared video at low cost: compare a small thumbnail every ~2 s and capture a full frame only when the picture changes a lot (a new slide).
 - Prompt API image input reads each new slide: title, main text, any numbers. Duplicate slides (going back) are recognised and skipped.
@@ -179,6 +179,23 @@ The screen or tab share already includes video, which the app currently ignores.
 - Slides appear as cards inline with the captions at the moment they were shown. They feed Q&A ("what was on the pricing slide?") and the minutes ("Slides shown: …").
 - Slide reading runs as background work through `ModelGate`, so it never delays live transcription.
 - Privacy: frames are processed on-device; only the extracted text is saved, never the image, unless the user turns that on.
+
+**Built:**
+- **Watching (`src/audio/slide-watcher.ts`, `src/lib/slides.ts`):** the share's video track (kept from `getDisplayMedia`, which already asked for video) is read with `MediaStreamTrackProcessor`, keeping only the newest frame. Every 2 s a 64×36 greyscale thumbnail goes to `SlideDetector`, which takes a frame when two ticks agree (the picture has settled) and it differs from the current slide.
+- **Comparing by ink, not pixels:** text-only slides differ in only 3–6% of thumbnail pixels, the same as noise, so the first version missed slide changes. Thumbnails are compared by "ink" (pixels away from the most common grey) relative to all the ink: different demo slides 0.53–0.58, a bullet added 0.08, a camera tile moving 0.04, the same slide 0. A whole-picture pixel share still catches light/dark swaps.
+- **Reading:** Prompt API image input with a JSON schema that first picks the kind of screen (slide, document, spreadsheet, video call, chat or live captions, app screen, empty), then title and up to 8 points. Asked only "is this a slide?", Gemini Nano said yes to Meeting Copilot's own captions screen and read the captions as bullets; picking a kind first, all three app screenshots came back "chat or live captions" and the slide was still read exactly.
+- **One card per slide (`placeSlide`):** the same title with more text updates the latest card (a bullet appeared); text matching an earlier slide is skipped (going back). The detector also remembers thumbnails, so a slide shown again isn't read again.
+- **Cards** sit in the captions list in time order, in the caption language (Translator pool, same queue), with "As shown" for the original. They come along into the floating captions window.
+- **Q&A** gets a SLIDES section (up to a quarter of the budget, newest first); **minutes** list "Slides shown" in the panel and in the Markdown and email exports; history search covers slide text.
+- **Background work:** frames wait in a queue (latest 6) and are read through `ModelGate.background`, retried when a question interrupts.
+- **Not built:** saving slide images (the opt-in). Only text is stored.
+
+**Results** (Chrome 157, demo with 3 canvas slides and Chinese captions):
+- All 3 slides read word for word and translated; cards at 10:46:15, :19, :24, matching when each was shown.
+- "What was on the data migration slide?" → the three points, cited [10:46:23].
+- Minutes listed the 3 slides. A slide on its own reads in ~15 s; with transcription and minutes running alongside, 30–90 s.
+- A real tab share in the test Chrome (fake capture shares the app's own tab) confirmed frames flow from a display track and changes are detected. `ImageCapture.grabFrame` was tried first and stopped resolving after a few grabs, so it was replaced.
+- **Not verified:** a real Teams/Zoom share by a person, and how the detector behaves with animated slide transitions or video playing inside a slide.
 
 ---
 
