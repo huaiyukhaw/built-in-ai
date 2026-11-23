@@ -223,6 +223,13 @@ main:has(> .meeting) { padding-block-end: 0; }
 }
 .lang-menu:popover-open { display: grid; }
 .lang-menu .hint { font: var(--body-s); color: var(--on-surface-variant); }
+/* "Both languages are spoken" (language menu and Settings) */
+.check-row { display: grid; grid-template-columns: auto 1fr; gap: 0.75rem; align-items: start; cursor: pointer; }
+.check-row input { inline-size: 1.125rem; block-size: 1.125rem; margin: 0.125rem 0 0; accent-color: var(--primary); cursor: inherit; }
+.check-row input:disabled, .check-row input:disabled + span { cursor: not-allowed; opacity: 0.6; }
+.check-row .check-title { display: block; font: var(--body-m); color: var(--on-surface); }
+.check-row small { display: block; font: var(--body-s); color: var(--on-surface-variant); }
+.settings .check-row { margin-block: 0.75rem; }
 @media (prefers-reduced-motion: no-preference) {
   .lang-menu:popover-open { animation: pop-in var(--dur-m) var(--ease-emph); transform-origin: bottom left; }
   @keyframes pop-in { from { opacity: 0; scale: 0.92; } }

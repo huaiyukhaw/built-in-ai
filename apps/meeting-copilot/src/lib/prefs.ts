@@ -45,7 +45,8 @@ export function watchScheme(onChange: () => void) {
   applyScheme(getSchemePref());
 }
 
-export interface LangPrefs { spokenLocale: string; captionLang: string }
+/** Languages for new meetings; twoWay: both are spoken and each line is translated into the other. */
+export interface LangPrefs { spokenLocale: string; captionLang: string; twoWay?: boolean }
 
 export function getLangPrefs(): LangPrefs {
   try { return { spokenLocale: 'en-US', captionLang: 'zh', ...JSON.parse(localStorage.getItem(LANG_KEY) ?? '{}') }; } catch { return { spokenLocale: 'en-US', captionLang: 'zh' }; }

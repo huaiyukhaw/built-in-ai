@@ -31,6 +31,27 @@ describe('introducedName', () => {
   ])('no name in: %s', (text) => expect(introducedName(text)).toBe(''));
 });
 
+describe('introducedName in Japanese', () => {
+  it('finds a name after a greeting, or with と申します', () => {
+    expect(introducedName('こんにちは、田中です。バックエンドはほぼ完成しています。')).toBe('田中');
+    expect(introducedName('お疲れ様です、Kumarです。')).toBe('Kumar');
+    expect(introducedName('佐藤と申します。よろしくお願いします。')).toBe('佐藤');
+    expect(introducedName('はじめまして、マリアです')).toBe('マリア');
+  });
+
+  it('ignores a bare です', () => {
+    expect(introducedName('了解です。')).toBe('');
+    expect(introducedName('大丈夫です')).toBe('');
+    expect(introducedName('はい、今日銀行に連絡します。')).toBe('');
+  });
+});
+
+describe('addressedName with an honorific', () => {
+  it('drops -san', () => {
+    expect(addressedName('The bank says Wednesday. Tanaka-san, can you chase them?')).toBe('Tanaka');
+  });
+});
+
 describe('addressedName', () => {
   it('finds a question put to someone by name', () => {
     expect(addressedName('Good. Lim Wei Jie, you’re handling the go-live comms?')).toBe('Lim Wei Jie');
@@ -95,4 +116,5 @@ describe('renameSpeaker', () => {
 it('cleanOwner drops the source label the transcript adds', () => {
   expect(cleanOwner('Priya (Remote)')).toBe('Priya');
   expect(cleanOwner('Room')).toBe('');
+  expect(cleanOwner('Tanaka-san (Remote)')).toBe('Tanaka');
 });

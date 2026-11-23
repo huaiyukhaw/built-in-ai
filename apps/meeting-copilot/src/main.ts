@@ -28,7 +28,7 @@ async function route() {
   }
   const meeting = await getMeeting(match[1]);
   if (!meeting) { go('#/'); return; }
-  setLangPrefs({ spokenLocale: meeting.spokenLocale, captionLang: meeting.captionLang });
+  setLangPrefs({ spokenLocale: meeting.spokenLocale, captionLang: meeting.captionLang, twoWay: !!meeting.twoWay });
   transition(() => { cleanup = renderMeeting(app, meeting, () => go('#/')); }, '#meeting-heading');
 }
 
@@ -38,7 +38,7 @@ function go(hash: string) {
 
 async function startNew() {
   const p = getLangPrefs();
-  const m = newMeeting(p.spokenLocale, p.captionLang);
+  const m = newMeeting(p.spokenLocale, p.captionLang, Date.now(), !!p.twoWay);
   const terms = getDefaultGlossary();
   if (terms.length) m.glossary = terms;
   await saveMeeting(m);

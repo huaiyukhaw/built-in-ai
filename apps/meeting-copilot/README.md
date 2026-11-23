@@ -22,7 +22,7 @@ Check model status at `chrome://on-device-internals`. The first use of each API 
 `test/e2e/chrome.sh` launches a visible Chrome with its own test profile and a debugging port, which `agent-browser connect 9333` attaches to. Don't let `agent-browser open` launch Chrome itself: it passes `--disable-component-update`, so Gemini Nano never downloads and every `availability()` call hangs. The script always uses the one test profile (`D:\chrome-profiles\meeting-copilot-test-chrome`, on D: because C: is nearly full; `TEST_PROFILE_DIR` moves it) and reuses a test Chrome already on port 9333, because each new profile downloads Gemini Nano (~4 GB) again.
 
 ```bash
-powershell -File test/e2e/make-audio.ps1     # one-time: spoken meeting WAVs via Windows TTS
+powershell -File test/e2e/make-audio.ps1     # one-time: spoken meeting WAVs via Windows TTS (mixed.wav: English and Japanese turns)
 npx serve test/e2e -l 4180                   # fake "meeting tab" that plays remote.wav (?slides adds a slide deck)
 bash test/e2e/chrome.sh ai                   # or: bash test/e2e/chrome.sh audio
 ```
@@ -65,6 +65,7 @@ bash test/e2e/chrome.sh ai      # then open /eval.html in that window and press 
 | Speaker names | A line like "Hi, this is Priya", "Daniel here" or "It's Aisha" names that speaker, and the name carries forward on that source (room mic or remote audio) until someone else introduces themselves. A question put to someone by name ("Wei Ming, can you chase them?") names the next answer from the other source. Click a speaker label to rename it; the run of lines with that label changes. Names go into the transcript the model reads (`Priya (Remote): …`), so Q&A and minutes use them |
 | No double lines | When the room mic hears the meeting through the laptop speakers, its copy of a remote line is removed. The mic goes to Web Speech as an echo-cancelled track (`getUserMedia` → `SpeechRecognition.start(track)`), which helps when the meeting plays in Chrome. While remote audio is on, mic lines are shown dimmed for up to 20 s and dropped if a remote line with the same content words arrives (`EchoFilter`); a one-time message suggests headphones |
 | Translated captions | Translator API, one cached translator per language pair, results kept in spoken order |
+| Two-way meetings | For meetings in two languages, such as English and Japanese: tick **Both languages are spoken** in the language menu (or in Settings for new meetings). Each line is translated into the other language; a line in neither (someone switches to Chinese) is translated into English. Lines are told apart by script, words and Chrome's on-device **LanguageDetector**. The room mic and remote audio are both transcribed by the Prompt API, told to write each word in the language spoken, because Web Speech listens for one language. Q&A and minutes read English: Japanese lines in their English translation. Japanese introductions (「こんにちは、田中です」) name speakers, and "-san" is dropped from names |
 | Floating captions | Document Picture-in-Picture: the captions panel moves into an always-on-top window |
 | Slide-aware notes | The video of a tab or screen share is watched for new slides: every 2 s a 64×36 thumbnail is compared by its "ink" (pixels that stand out from the background), and a full frame is taken only when the picture settles on something new (`SlideDetector`). The Prompt API's **image input** first says what kind of screen it is, then, for a slide, document or spreadsheet, reads the title and main points. Cards appear in the captions at the time the slide was shown, translated into the caption language. A bullet appearing updates the card; going back to an earlier slide adds nothing. Slides feed Q&A and are listed in the minutes. Reading runs as background work, after transcription. Only the text is saved, never the picture |
 | Ask the meeting | Prompt API answers from the transcript and the slides shown, and cites `[HH:MM:SS]` timestamps; long meetings keep the most recent context that fits |
@@ -83,6 +84,8 @@ bash test/e2e/chrome.sh ai      # then open /eval.html in that window and press 
 src/
   lib/model.ts        Meeting / Segment types, language lists
   lib/glossary.ts     names and terms: parsing, near-miss correction      (tested)
+  lib/bilingual.ts    two-way meetings: which language a line is in, where it is translated (tested)
+  lib/detect.ts       Chrome's on-device LanguageDetector
   lib/agenda.ts       agenda parsing, status, grounding, time box        (tested)
   lib/echo.ts         drop mic lines that echo remote speech             (tested)
   lib/speakers.ts     speaker names from introductions, rename           (tested)
@@ -98,7 +101,7 @@ src/
   lib/markdown.ts     safe Markdown subset → DOM (textContent only)       (tested)
   lib/db.ts           IndexedDB store + debounced autosave                (tested)
   audio/chunker.ts    pause-based PCM segmentation                        (tested)
-  audio/sources.ts    mic (Web Speech) and tab audio (getDisplayMedia → AudioWorklet → Prompt API)
+  audio/sources.ts    mic (Web Speech, or the Prompt API in two-way meetings) and tab audio (getDisplayMedia → AudioWorklet → Prompt API)
   audio/slide-watcher.ts  frames of the shared video (MediaStreamTrackProcessor) → SlideDetector
   ui/                 history view, meeting view, PiP, DOM helpers
   eval/               minutes quality scorer (tested) and the /eval.html runner
@@ -141,6 +144,7 @@ The theme script is `public/theme-init.js` rather than inline, so the policy can
 - **Malay and Tamil** mic speech isn't available on-device and goes to Google's speech service. Malay isn't supported by the Translator.
 - **Q&A and minutes** are tuned for English transcripts.
 - **Speaker names come from what people say**, not from their voices. Several people on one source share the last name heard until someone introduces themselves or is asked by name; click the label to fix it.
+- **Two-way meetings** need two languages the Prompt API can write (English, Japanese, Spanish). The room mic then has no live word-by-word preview: captions arrive a phrase at a time, a few seconds late. Each translation direction downloads separately; Chrome only downloads one at a time, so the second may need one more click anywhere in the app.
 - **Slides are read slowly** while remote audio is busy: 15 s for a slide on its own, 30–90 s when transcription and minutes are also running, because one model does everything. A presenter clicking through faster sees only the last 6 slides read. With an entire-screen share, anything on screen can be read; the model is asked to skip call windows, chats and app screens, but check the cards.
 - **Echo removal matches words, not sound.** A room comment that repeats most of what a remote speaker just said can be removed too, and room lines join the transcript up to 20 s late while remote audio is on. Headphones avoid both.
 

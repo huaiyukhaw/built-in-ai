@@ -104,18 +104,28 @@ const SAMPLE_RATE = 16_000;
 export const hasTabCapture = () => 'getDisplayMedia' in (navigator.mediaDevices ?? {}) && 'LanguageModel' in globalThis;
 export const tabLangSupported = (locale: string) => PROMPT_LANGS.includes(langOf(locale));
 
-/** Pre-create the transcription session (call from a click so a model download has user activation). */
-export function prepareTabTranscriber(locale: string, onProgress?: Progress) {
-  const lang = langOf(locale);
-  const name = new Intl.DisplayNames(['en'], { type: 'language' }).of(lang);
+/**
+ * Pre-create the transcription session (call from a click so a model download has user activation).
+ * With two languages (a two-way meeting), each clip is written down in whichever language is spoken.
+ */
+export function prepareTranscriber(langs: string[], onProgress?: Progress) {
+  const names = langs.map((l) => new Intl.DisplayNames(['en'], { type: 'language' }).of(l));
+  const which = langs.length > 1
+    // Without "even if a name…", a test line "Tanaka-san, can you chase the bank?" came out in Japanese.
+    ? `The speech is in ${names.join(' or ')}, sometimes both in one sentence. Write each word in the language it was spoken: ` +
+      `${names.map((n) => `${n} speech in ${n}`).join(', ')}. Never translate, even if a name or word sounds like the other language. `
+    : `Output only the verbatim transcript of the audio, in ${names[0]}. `;
   return create<LanguageModelSession>('LanguageModel', {
     initialPrompts: [{ role: 'system', content:
-      `You are a speech-to-text engine. Output only the verbatim transcript of the audio, in ${name}. ` +
+      `You are a speech-to-text engine. ${which}` +
       'Do not add commentary, speaker names or quotes. If there is no intelligible speech, output exactly: [no speech]' }],
     expectedInputs: [{ type: 'audio' }, { type: 'text', languages: ['en'] }],
-    expectedOutputs: [{ type: 'text', languages: [lang] }],
+    expectedOutputs: [{ type: 'text', languages: langs }],
   }, onProgress);
 }
+
+/** One-language transcriber for a meeting locale. */
+export const prepareTabTranscriber = (locale: string, onProgress?: Progress) => prepareTranscriber([langOf(locale)], onProgress);
 
 /** The text sent with each clip. Glossary terms help spelling; the model is told not to add them unheard. */
 export function transcribeRequest(terms: string[]): string {
@@ -168,11 +178,32 @@ export async function startTabAudio(transcriber: Promise<LanguageModelSession>, 
     throw new Error(noAudioMessage(surface));
   }
 
+  const stop = await transcribeTrack(audio, transcriber, ev, terms, () => stream.getTracks().forEach((t) => t.stop()));
+  return { local: true, surface, video, stop };
+}
+
+/**
+ * The room mic transcribed by the Prompt API instead of Web Speech: used in two-way meetings, because
+ * Web Speech listens for one language at a time. Slower (a clip at a time, no live preview), but
+ * it writes down either language as spoken.
+ */
+export async function startAiMic(transcriber: Promise<LanguageModelSession>, ev: SourceEvents, terms: () => string[] = () => []): Promise<AudioSource> {
+  const track = await echoCancelledMic();
+  if (!track) throw new Error('Microphone permission was denied.');
+  const stop = await transcribeTrack(track, transcriber, ev, terms, () => track.stop());
+  return { local: true, stop };
+}
+
+/**
+ * Pause-delimited chunks of an audio track → AudioBuffer → Prompt API audio input, one clip at a time.
+ * Returns a stop function; `release` stops the capture itself.
+ */
+async function transcribeTrack(audio: MediaStreamTrack, transcriber: Promise<LanguageModelSession>, ev: SourceEvents, terms: () => string[], release: () => void): Promise<() => void> {
   const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
   await ctx.audioWorklet.addModule(new URL('/pcm-worklet.js', location.href));
   const src = ctx.createMediaStreamSource(new MediaStream([audio]));
   const tap = new AudioWorkletNode(ctx, 'pcm-tap');
-  src.connect(tap); // not connected to destination: the tab keeps playing its own audio
+  src.connect(tap); // not connected to destination: nothing is played back
   const chunker = new VoiceChunker({ sampleRate: SAMPLE_RATE });
   const base = await transcriber;
 
@@ -215,10 +246,9 @@ export async function startTabAudio(transcriber: Promise<LanguageModelSession>, 
     if (last) transcribe(last);
     stopped = true;
     tap.port.onmessage = null;
-    stream.getTracks().forEach((t) => t.stop());
+    release();
     void ctx.close();
   };
   audio.addEventListener('ended', () => { stop(); ev.onEnded?.(); });
-
-  return { local: true, surface, video, stop };
+  return stop;
 }

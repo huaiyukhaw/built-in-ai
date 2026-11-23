@@ -72,6 +72,15 @@ declare var Translator: {
   create(options: TranslatorOptions): Promise<TranslatorSession>;
 };
 
+// ---- Language Detector ----
+interface LanguageDetectorSession extends AIDestroyable {
+  detect(input: string): Promise<{ detectedLanguage: string; confidence: number }[]>;
+}
+declare var LanguageDetector: {
+  availability(options?: object): Promise<AIAvailability>;
+  create(options?: AICreateOptionsBase): Promise<LanguageDetectorSession>;
+};
+
 // ---- Web Speech recognition (prefixed in Chrome) ----
 interface SpeechRecognitionAlternative { readonly transcript: string; readonly confidence: number }
 interface SpeechRecognitionResult { readonly isFinal: boolean; readonly length: number; [i: number]: SpeechRecognitionAlternative }

@@ -6,6 +6,8 @@ import { createInGesture, type Progress } from './ai';
  */
 export class TranslatorPool {
   #pool = new Map<string, Promise<TranslatorSession | null>>();
+  #ready = new Set<string>();
+  #unsupported = new Set<string>();
   #queue: Promise<unknown> = Promise.resolve();
 
   constructor(private onProgress?: Progress) {}
@@ -20,14 +22,23 @@ export class TranslatorPool {
     const key = `${source}>${target}`;
     if (!this.#pool.has(key)) {
       const opts = { sourceLanguage: source, targetLanguage: target };
-      this.#pool.set(key, createInGesture<TranslatorSession>('Translator', opts, this.onProgress).catch((err: unknown) => {
+      this.#pool.set(key, createInGesture<TranslatorSession>('Translator', opts, this.onProgress).then((t) => {
+        this.#ready.add(key);
+        return t;
+      }, (err: unknown) => {
         const unsupported = err instanceof DOMException && err.name === 'NotSupportedError';
-        if (!unsupported) this.#pool.delete(key);
+        if (unsupported) this.#unsupported.add(key); else this.#pool.delete(key);
         return null;
       }));
     }
     return this.#pool.get(key)!;
   }
+
+  /** The translator for this pair is ready to use. */
+  isReady(source: string, target: string) { return this.#ready.has(`${source}>${target}`); }
+
+  /** Chrome can't translate this pair at all (as opposed to: not downloaded yet). */
+  isUnsupported(source: string, target: string) { return this.#unsupported.has(`${source}>${target}`); }
 
   /** Translation, `undefined` if no translation is needed, or `null` if the pair is unsupported. */
   translate(text: string, source: string, target: string): Promise<string | null | undefined> {
@@ -43,5 +54,6 @@ export class TranslatorPool {
   destroy() {
     for (const p of this.#pool.values()) p.then((t) => t?.destroy());
     this.#pool.clear();
+    this.#ready.clear();
   }
 }

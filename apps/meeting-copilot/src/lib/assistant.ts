@@ -78,6 +78,16 @@ export class Assistant {
   /** The meeting's names and terms, given to Q&A, catch-up and minutes so spelling stays consistent. */
   glossary: string[] = [];
 
+  /**
+   * The text the model reads for each line (default: as said). A two-way meeting gives English
+   * translations of lines in the other language, since the prompts are tuned for English.
+   */
+  lineText: (s: Segment) => string = (s) => s.text;
+
+  #view(segments: Segment[]): Segment[] {
+    return segments.map((s) => { const text = this.lineText(s); return text === s.text ? s : { ...s, text }; });
+  }
+
   constructor(private onProgress?: Progress) {}
 
   /** Glossary line plus a blank line to put before a prompt's input, or "". */
@@ -98,7 +108,7 @@ export class Assistant {
 
   #qa() {
     this.#qaBase ??= create<LanguageModelSession>('LanguageModel', {
-      ...TEXT_EN,
+      expectedInputs: [{ type: 'text', languages: ['en', 'ja', 'es'] }], expectedOutputs: [{ type: 'text', languages: ['en'] }],
       initialPrompts: [{ role: 'system', content:
         'You answer questions about a live meeting using ONLY the transcript provided. ' +
         'Cite the [HH:MM:SS] timestamp of the lines you rely on. SLIDES are what was on the shared screen from that time. ' +
@@ -130,7 +140,8 @@ export class Assistant {
    * Which agenda items one stretch of the transcript discussed or settled. `found` is the window's
    * extracted decisions and action items, used to confirm "decided" (see groundCheck).
    */
-  async checkAgenda(agenda: string[], part: Segment[], signal?: AbortSignal, found: Extracted = { decisions: [], actionItems: [], openQuestions: [] }): Promise<AgendaCheck> {
+  async checkAgenda(agenda: string[], said: Segment[], signal?: AbortSignal, found: Extracted = { decisions: [], actionItems: [], openQuestions: [] }): Promise<AgendaCheck> {
+    const part = this.#view(said);
     const base = await this.#agendaChecker();
     const s = await base.clone({ signal });
     try {
@@ -155,11 +166,12 @@ export class Assistant {
     return this.#summarizers.get(key)!;
   }
 
-  #slideReader(lang: string) {
+  #slideReader(langs: string[]) {
+    const lang = langs.join('+');
     if (!this.#slideBases.has(lang)) {
       const p = create<LanguageModelSession>('LanguageModel', {
         expectedInputs: [{ type: 'image' }, { type: 'text', languages: ['en'] }],
-        expectedOutputs: [{ type: 'text', languages: [lang] }],
+        expectedOutputs: [{ type: 'text', languages: langs }],
       }, this.onProgress);
       p.catch(() => this.#slideBases.delete(lang));
       this.#slideBases.set(lang, p);
@@ -168,11 +180,12 @@ export class Assistant {
   }
 
   /**
-   * Read a frame of the shared screen: its title and main points, written in `lang` (a Prompt API
-   * output language). Null when it isn't a slide or document. Run it as background work.
+   * Read a frame of the shared screen: its title and main points, in `langs` (Prompt API output
+   * languages; two in a two-way meeting, read as written). Null when it isn't a slide or document.
+   * Run it as background work.
    */
-  async readSlide(frame: ImageBitmapSource, lang: string, signal?: AbortSignal): Promise<{ title: string; points: string[] } | null> {
-    const base = await this.#slideReader(lang);
+  async readSlide(frame: ImageBitmapSource, langs: string[], signal?: AbortSignal): Promise<{ title: string; points: string[] } | null> {
+    const base = await this.#slideReader(langs);
     const s = await base.clone({ signal });
     try {
       const out = await s.prompt([{ role: 'user', content: [{ type: 'text', value: SLIDE_REQUEST }, { type: 'image', value: frame }] }], { responseConstraint: SLIDE_SCHEMA, signal });
@@ -183,7 +196,8 @@ export class Assistant {
   }
 
   /** Stream an answer to a question about the meeting so far, from the transcript and the slides shown. */
-  ask(question: string, segments: Segment[], onText: (t: string) => void, signal?: AbortSignal, slides: Slide[] = []): Promise<string> {
+  ask(question: string, said: Segment[], onText: (t: string) => void, signal?: AbortSignal, slides: Slide[] = []): Promise<string> {
+    const segments = this.#view(said);
     if (!segments.length && !slides.length) return Promise.resolve('Nothing has been transcribed yet.');
     return modelGate.urgent(async () => {
       const base = await this.#qa();
@@ -206,8 +220,8 @@ export class Assistant {
   }
 
   /** Key points of the last N minutes. */
-  catchUp(segments: Segment[], minutes: number, onText: (t: string) => void, now = Date.now()): Promise<string> {
-    const recent = lastMinutes(segments, minutes, now);
+  catchUp(said: Segment[], minutes: number, onText: (t: string) => void, now = Date.now()): Promise<string> {
+    const recent = this.#view(lastMinutes(said, minutes, now));
     if (!recent.length) return Promise.resolve(`Nothing was said in the last ${minutes} min.`);
     return modelGate.urgent(async () => {
       const s = await this.#summarizer('key-points', 'short');
@@ -238,7 +252,8 @@ export class Assistant {
    * Summarize and extract one window of the transcript. Used in the background while the meeting
    * is live (pass the gate's signal) and for whatever is left when minutes are generated.
    */
-  async processWindow(segments: Segment[], range: WindowRange, signal?: AbortSignal, agenda: string[] = []): Promise<MinutesWindow> {
+  async processWindow(said: Segment[], range: WindowRange, signal?: AbortSignal, agenda: string[] = []): Promise<MinutesWindow> {
+    const segments = this.#view(said);
     const part = segments.slice(range.from, range.to);
     const summarizer = await this.#summarizer('key-points', 'long');
     const summary = await summarizer.summarize(formatTranscript(part), { signal, ...(this.glossary.length ? { context: this.#termsContext().trim() } : {}) });

@@ -42,7 +42,9 @@ const NOT_A_PERSON = /^(|room|remote|speaker|unknown|unassigned|someone|somebody
 /** Owner as a person's name, or "" when the model gave a source label or placeholder. */
 export function cleanOwner(owner: string): string {
   // "Priya (Remote)" is how the transcript labels speakers; the owner is Priya.
-  const o = owner.replace(/\s*\((?:room|remote)\)\s*$/i, '').trim();
+  const o = owner.replace(/\s*\((?:room|remote)\)\s*$/i, '').trim()
+    // "Tanaka-san": a Japanese honorific isn't part of the name.
+    .replace(/-(?:san|sama|kun|chan|sensei|senpai)$/i, '');
   return NOT_A_PERSON.test(o) ? '' : o;
 }
 

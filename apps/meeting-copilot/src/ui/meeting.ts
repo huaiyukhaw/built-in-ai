@@ -15,14 +15,16 @@ import { watchSlides, type SlideWatcher } from '../audio/slide-watcher';
 import { nextSpeaker, renameSpeaker, sourceLabel } from '../lib/speakers';
 import { clock } from '../lib/transcript';
 import { TranslatorPool } from '../lib/translate';
-import { hasMic, hasTabCapture, prepareTabTranscriber, startMic, startTabAudio, tabLangSupported, type AudioSource } from '../audio/sources';
+import { hasMic, hasTabCapture, prepareTabTranscriber, prepareTranscriber, startAiMic, startMic, startTabAudio, tabLangSupported, type AudioSource } from '../audio/sources';
+import { canBeTwoWay, chooseLang, detectLang, isTwoWay, langName, lineLangs, modelText, pairOf } from '../lib/bilingual';
+import { detectLanguages, prepareDetector } from '../lib/detect';
 import { chooseRemoteKind } from './remote-picker';
 import { askSpeakerName } from './rename-speaker';
 import { agendaPanel } from './agenda-panel';
 import { glossaryPanel } from './glossary-panel';
 import { flash, h } from './dom';
 import { hasPiP, popOut } from './pip';
-import { icon, renderAppBar, snackbar } from './shell';
+import { icon, renderAppBar, snackbar, twoWayCheck } from './shell';
 
 const API_LABEL: Record<ApiName, string> = { LanguageModel: 'Prompt API', Summarizer: 'Summarizer', Translator: 'Translator' };
 const spokenLabel = (locale: string) => SPOKEN_LOCALES.find((l) => l.locale === locale)?.label ?? locale;
@@ -61,6 +63,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   const translator = new TranslatorPool(onProgress);
   const assistant = new Assistant(onProgress);
   assistant.glossary = meeting.glossary ?? [];
+  assistant.lineText = (s) => modelText(meeting, s);
   const terms = () => meeting.glossary ?? [];
   // While live, minutes are drafted in the background a few minutes at a time. The demo uses
   // small windows so the live action items list shows up within a minute.
@@ -146,14 +149,19 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   const langText = h('span', { class: 'label' });
   const langChip = h('button', { class: 'lang-chip', popovertarget: 'lang-menu', 'aria-label': 'Languages' }, icon('translate'), langText, h('span', { class: 'arrow' }, icon('chevron')));
   const tabHint = h('p', { class: 'hint' });
+  const twoWayBox = h('input', { type: 'checkbox', id: 'two-way', checked: !!meeting.twoWay }) as HTMLInputElement;
+  const twoWayRow = twoWayCheck(twoWayBox);
   const langMenu = h('dialog', { class: 'lang-menu', id: 'lang-menu', popover: 'auto', 'aria-label': 'Languages' },
     h('div', {}, h('label', { class: 'field-label', for: 'spoken' }, 'Meeting is spoken in'), h('span', { class: 'select-wrap' }, spoken, icon('chevron'))),
     h('div', {}, h('label', { class: 'field-label', for: 'caption' }, 'Show captions in'), h('span', { class: 'select-wrap' }, caption, icon('chevron'))),
+    twoWayRow,
     tabHint);
   const updateLangChip = () => {
-    langText.textContent = langOf(meeting.spokenLocale) === meeting.captionLang
-      ? spokenLabel(meeting.spokenLocale)
-      : `${spokenLabel(meeting.spokenLocale)} → ${captionLabel(meeting.captionLang)}`;
+    twoWayRow.hidden = !canBeTwoWay(meeting.spokenLocale, meeting.captionLang);
+    const [a, b] = pairOf(meeting);
+    langText.textContent = isTwoWay(meeting) ? `${langName(a)} ⇄ ${langName(b)}`
+      : a === b ? spokenLabel(meeting.spokenLocale)
+        : `${spokenLabel(meeting.spokenLocale)} → ${captionLabel(meeting.captionLang)}`;
   };
 
   const micBtn = h('button', { class: 'ctl', id: 'mic-btn', 'aria-pressed': 'false', 'aria-label': 'Room microphone', title: 'Room microphone', disabled: !hasMic() }, icon('mic'));
@@ -178,15 +186,16 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   jump.addEventListener('click', () => { lines.scrollTo({ top: lines.scrollHeight, behavior: 'smooth' }); jump.hidden = true; });
 
   function lineEl(s: Segment) {
-    const needsTranslation = langOf(meeting.spokenLocale) !== meeting.captionLang;
+    const { from, to } = lineLangs(meeting, s);
+    const needsTranslation = from !== to;
     const pending = needsTranslation && s.translation === undefined;
     return h('li', { class: `line ${s.source}`, id: `seg-${s.id}`, dataset: { at: String(s.at) } },
       h('button', { class: 'speaker', type: 'button', title: `${s.speaker ? `${s.speaker} · ${sourceLabel(s.source)}` : sourceLabel(s.source)} · rename`, on: { click: () => rename(s) } },
         icon(s.source === 'tab' ? 'present' : 'mic'), s.speaker || sourceLabel(s.source), h('time', {}, clock(s.at))),
-      h('span', { class: `main${pending ? ' pending' : ''}`, lang: s.translation ? meeting.captionLang : meeting.spokenLocale },
+      h('span', { class: `main${pending ? ' pending' : ''}`, lang: s.translation ? to : from },
         s.translation ?? s.text),
       s.translation
-        ? h('span', { class: 'orig', lang: meeting.spokenLocale }, s.text)
+        ? h('span', { class: 'orig', lang: from }, s.text)
         : s.translation === null && needsTranslation
           ? h('span', { class: 'orig' }, h('span', { class: 'tag' }, 'Translation unavailable for this language'))
           : null);
@@ -199,10 +208,11 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
       h('strong', { class: 'slide-title', lang }, title || 'Untitled slide'),
       points.length ? h('ul', { lang }, ...points.map((p) => h('li', {}, p))) : '',
     ];
-    const needsTranslation = s.lang !== meeting.captionLang;
+    const target = slideTarget(s);
+    const needsTranslation = s.lang !== target;
     return h('li', { class: 'slide-card', id: `slide-${s.id}`, dataset: { at: String(s.at) } },
       h('span', { class: 'slide-head' }, icon('slides'), 'Slide', h('time', {}, clock(s.at))),
-      ...(t ? body(t.title, t.points, meeting.captionLang) : body(s.title, s.points, s.lang)),
+      ...(t ? body(t.title, t.points, target) : body(s.title, s.points, s.lang)),
       t ? h('details', { class: 'orig' }, h('summary', {}, 'As shown'), ...body(s.title, s.points, s.lang))
         : t === null && needsTranslation ? h('span', { class: 'orig' }, h('span', { class: 'tag' }, 'Translation unavailable for this language')) : '');
   }
@@ -237,7 +247,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     const text = correctTerms(heard, terms());
     const speaker = nextSpeaker(meeting.segments, source, text);
     if (speaker) glossaryUI.add([speaker]);
-    const seg: Segment = { id: crypto.randomUUID(), at: Date.now(), source, text, ...(speaker ? { speaker } : {}) };
+    const seg: Segment = { id: crypto.randomUUID(), at: Date.now(), source, text, ...(speaker ? { speaker } : {}),
+      ...(isTwoWay(meeting) ? { lang: detectLang(text, pairOf(meeting)) } : {}) };
     const remoteOn = sources.has('tab');
     if (source === 'tab') echo.remote(seg, clipEnd);
     showLine(seg, source === 'mic' && remoteOn);
@@ -253,8 +264,12 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     el.classList.toggle('held', held);
     lines.append(el);
     if (stick) lines.scrollTop = lines.scrollHeight;
-    void translator.translate(seg.text, langOf(meeting.spokenLocale), meeting.captionLang).then((t) => {
+    void refineLang(seg).then(() => {
+      const { from, to } = lineLangs(meeting, seg);
+      return translator.translate(seg.text, from, to);
+    }).then((t) => {
       seg.translation = t;
+      if (t === null) prepareTranslators(); // not downloaded yet: try again on the next click
       const old = document.getElementById(`seg-${seg.id}`);
       if (!old) return; // dropped as an echo
       const fresh = lineEl(seg);
@@ -303,6 +318,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
 
   /** The language slides are read in: the meeting's, if the Prompt API can write it. */
   const slideLang = () => (PROMPT_LANGS.includes(langOf(meeting.spokenLocale)) ? langOf(meeting.spokenLocale) : 'en');
+  /** The language a slide is translated into: the other one in a two-way meeting. */
+  const slideTarget = (s: Pick<Slide, 'lang'>) => (isTwoWay(meeting) ? lineLangs(meeting, { lang: s.lang, text: '' }).to : meeting.captionLang);
 
   function onFrame(frame: ImageBitmap, at: number) {
     pendingFrames.push({ frame, at });
@@ -317,17 +334,22 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     try {
       while (pendingFrames.length && !slidesClosed) {
         const { frame, at } = pendingFrames.shift()!;
-        const lang = slideLang();
+        // A two-way meeting's slides may be in either language: read as written, then tell which.
+        const langs = isTwoWay(meeting) ? pairOf(meeting) : [slideLang()];
         let read: Awaited<ReturnType<Assistant['readSlide']>> | undefined;
         for (let attempt = 0; attempt < 5 && read === undefined && !slidesClosed; attempt++) {
           try {
-            read = await modelGate.background((signal) => assistant.readSlide(frame, lang, signal));
+            read = await modelGate.background((signal) => assistant.readSlide(frame, langs, signal));
           } catch (err) {
             if (!isAbort(err)) { console.warn('Slide reading failed', err); break; }
           }
         }
         frame.close();
-        if (read) addSlide({ id: crypto.randomUUID(), at, lang, ...read });
+        if (read) {
+          const text = [read.title, ...read.points].join(' ');
+          const lang = langs.length > 1 ? chooseLang(text, pairOf(meeting), await detectLanguages(text)) : langs[0];
+          addSlide({ id: crypto.randomUUID(), at, lang, ...read });
+        }
       }
     } finally {
       readingSlides = false;
@@ -357,8 +379,9 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
 
   /** Translate a slide into the caption language (same Translator pool and queue as captions). */
   async function translateSlide(s: Slide) {
-    if (s.lang === meeting.captionLang) return;
-    const parts = await Promise.all([s.title, ...s.points].map((t) => (t ? translator.translate(t, s.lang, meeting.captionLang) : Promise.resolve(''))));
+    const target = slideTarget(s);
+    if (s.lang === target) return;
+    const parts = await Promise.all([s.title, ...s.points].map((t) => (t ? translator.translate(t, s.lang, target) : Promise.resolve(''))));
     s.translation = parts.some((p) => p === null) ? null : { title: parts[0] ?? '', points: parts.slice(1).map((p) => p ?? '') };
     const stick = nearBottom();
     document.getElementById(`slide-${s.id}`)?.replaceWith(slideEl(s));
@@ -386,6 +409,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   function refreshLive() {
     stage.classList.toggle('is-live', sources.size > 0);
     spoken.disabled = sources.size > 0;
+    twoWayBox.disabled = sources.size > 0; // the room mic is started differently in a two-way meeting
+    caption.disabled = sources.size > 0 && isTwoWay(meeting); // in a two-way meeting it is also a spoken language
     privacy.hidden = sources.size === 0;
     endBtn.hidden = sources.size === 0 && !demoLive;
     const local = [...sources.values()].every((s) => s.local);
@@ -425,9 +450,12 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     if (sources.has('mic')) return stopSource('mic');
     try {
       // Prepare models inside the click so a first-time download has user activation.
-      void translator.prepare(langOf(meeting.spokenLocale), meeting.captionLang);
+      prepareTranslators();
       void assistant.warmUp();
-      const src = await startMic(meeting.spokenLocale, sourceEvents('mic'), terms);
+      // Web Speech listens for one language, so a two-way meeting's room mic goes to the model.
+      const src = isTwoWay(meeting)
+        ? await startAiMic(prepareTranscriber(pairOf(meeting), onProgress), sourceEvents('mic'), terms)
+        : await startMic(meeting.spokenLocale, sourceEvents('mic'), terms);
       sources.set('mic', src);
       micBtn.setAttribute('aria-pressed', 'true');
       refreshLive();
@@ -443,9 +471,9 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     const kind = await chooseRemoteKind();
     if (!kind) return;
     try {
-      void translator.prepare(langOf(meeting.spokenLocale), meeting.captionLang);
+      prepareTranslators();
       void assistant.warmUp();
-      const transcriber = prepareTabTranscriber(meeting.spokenLocale, onProgress);
+      const transcriber = isTwoWay(meeting) ? prepareTranscriber(pairOf(meeting), onProgress) : prepareTabTranscriber(meeting.spokenLocale, onProgress);
       transcriber.catch(() => {}); // surfaced through startTabAudio below
       const src = await startTabAudio(transcriber, sourceEvents('tab'), kind, terms);
       sources.set('tab', src);
@@ -468,23 +496,103 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     tabBtn.title = tabLangSupported(meeting.spokenLocale) ? 'Caption remote speakers (meeting tab or desktop app)' : 'Remote captions: English, Spanish or Japanese meetings only';
   }
 
-  spoken.addEventListener('change', () => { meeting.spokenLocale = spoken.value; saver.schedule(meeting); updateLangChip(); refreshTabHint(); renderAllLines(); });
-  caption.addEventListener('change', async () => {
-    meeting.captionLang = caption.value;
+  /** Translators for the meeting's language pair (both ways in a two-way meeting); call from a click. */
+  /**
+   * In a two-way meeting, check a line's language with the on-device detector: a line in neither
+   * language (someone switches to Chinese) is then translated into English.
+   */
+  async function refineLang(seg: Segment) {
+    if (!isTwoWay(meeting)) return;
+    seg.lang = chooseLang(seg.text, pairOf(meeting), await detectLanguages(seg.text));
+  }
+
+  /** Translator pairs this meeting needs: its pair (both ways if two-way), plus English for any third language. */
+  function translatorPairs(): [string, string][] {
+    const [a, b] = pairOf(meeting);
+    const pairs: [string, string][] = [[a, b]];
+    if (isTwoWay(meeting)) {
+      pairs.push([b, a]);
+      const others = new Set([...meeting.segments, ...(meeting.slides ?? [])].map((x) => x.lang).filter((l): l is string => !!l && l !== a && l !== b));
+      for (const l of others) pairs.push([l, 'en']);
+    }
+    return pairs.filter(([x, y]) => x !== y);
+  }
+
+  let retryArmed = false;
+  /**
+   * Make sure the translators are downloaded. Call from a click: a download needs user activation.
+   * Chrome fails a second download started alongside the first, so they go one at a time, and any
+   * still missing are tried again on the next click anywhere. Lines that couldn't be translated
+   * are translated once their translator arrives.
+   */
+  function prepareTranslators() {
+    if (isTwoWay(meeting)) void prepareDetector();
+    void (async () => {
+      let missing = false;
+      let gained = false;
+      for (const [x, y] of translatorPairs()) {
+        if (translator.isReady(x, y)) continue;
+        if (await translator.prepare(x, y)) gained = true;
+        else if (!translator.isUnsupported(x, y)) missing = true;
+      }
+      if (gained) void retranslateFailed();
+      if (missing && !retryArmed) {
+        retryArmed = true;
+        addEventListener('pointerdown', () => { retryArmed = false; prepareTranslators(); }, { once: true, capture: true });
+      }
+    })();
+  }
+
+  /** Translate again the lines and slides whose translation failed (translator not downloaded then). */
+  async function retranslateFailed() {
+    for (const s of meeting.segments) {
+      if (s.translation !== null) continue;
+      const { from, to } = lineLangs(meeting, s);
+      if (!translator.isReady(from, to)) continue;
+      s.translation = await translator.translate(s.text, from, to);
+      const old = document.getElementById(`seg-${s.id}`);
+      if (old) { const fresh = lineEl(s); fresh.className = old.className; old.replaceWith(fresh); }
+    }
+    for (const s of meeting.slides ?? []) if (s.translation === null) await translateSlide(s);
     saver.schedule(meeting);
-    updateLangChip();
-    void translator.prepare(langOf(meeting.spokenLocale), meeting.captionLang);
-    // Re-translate existing lines into the new caption language.
-    for (const s of meeting.segments) s.translation = undefined;
-    for (const s of meeting.slides ?? []) s.translation = undefined;
+  }
+
+  let retranslateRun = 0;
+  /** After a language change: work out each line's language again and translate everything again. */
+  async function retranslateAll() {
+    const run = ++retranslateRun;
+    prepareTranslators();
+    const twoWay = isTwoWay(meeting);
+    const pair = pairOf(meeting);
+    for (const s of meeting.segments) {
+      s.translation = undefined;
+      if (!twoWay) delete s.lang;
+    }
+    for (const s of meeting.slides ?? []) {
+      s.translation = undefined;
+      if (twoWay) s.lang = detectLang([s.title, ...s.points].join(' '), pair);
+    }
     renderAllLines();
     for (const s of meeting.segments) {
-      s.translation = await translator.translate(s.text, langOf(meeting.spokenLocale), meeting.captionLang);
+      if (twoWay) s.lang = chooseLang(s.text, pair, await detectLanguages(s.text));
+      if (run !== retranslateRun) return;
+      const { from, to } = lineLangs(meeting, s);
+      const t = await translator.translate(s.text, from, to);
+      if (run !== retranslateRun) return;
+      s.translation = t;
       document.getElementById(`seg-${s.id}`)?.replaceWith(lineEl(s));
     }
-    for (const s of meeting.slides ?? []) { s.translation = undefined; await translateSlide(s); }
+    for (const s of meeting.slides ?? []) {
+      if (run !== retranslateRun) return;
+      await translateSlide(s);
+    }
     saver.schedule(meeting);
-  });
+  }
+
+  const languagesChanged = () => { saver.schedule(meeting); updateLangChip(); refreshTabHint(); void retranslateAll(); };
+  spoken.addEventListener('change', () => { meeting.spokenLocale = spoken.value; languagesChanged(); });
+  caption.addEventListener('change', () => { meeting.captionLang = caption.value; languagesChanged(); });
+  twoWayBox.addEventListener('change', () => { meeting.twoWay = twoWayBox.checked; languagesChanged(); });
 
   floatBtn.addEventListener('click', async () => {
     try {
@@ -587,6 +695,12 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   }
 
   // ------------------------------------------------------------ minutes
+  /** Slide titles in the minutes: English in a two-way meeting with English (like the minutes), else the caption language. */
+  const minutesSlideTitle = (x: Slide) => {
+    const english = isTwoWay(meeting) && pairOf(meeting).includes('en');
+    const title = english ? (x.lang === 'en' ? x.title : slideTarget(x) === 'en' ? x.translation?.title : x.title) : x.translation?.title;
+    return title || x.title || 'Untitled slide';
+  };
   function renderMinutes() {
     const m = meeting.minutes;
     exportBar.hidden = !m;
@@ -612,7 +726,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
           draft ? 'Press End or Generate minutes for the summary and the final list.'
             : live ? 'Action items show up here every few minutes while you’re live. Press End for the full minutes.'
               : 'Generate minutes any time, during or after the meeting, or press End.',
-          langOf(meeting.spokenLocale) !== 'en' ? ' Minutes work best for English meetings.' : ''));
+          (isTwoWay(meeting) ? !pairOf(meeting).includes('en') : langOf(meeting.spokenLocale) !== 'en') ? ' Minutes work best for English meetings.' : ''));
       return;
     }
     minutesBody.replaceChildren(
@@ -622,7 +736,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
       m.actionItems.length ? actionTable(m.actionItems) : h('p', { class: 'empty-note' }, 'None recorded.'),
       h('h3', {}, 'Open questions'), list(m.openQuestions),
       meeting.slides?.length ? h('h3', {}, 'Slides shown') : '',
-      meeting.slides?.length ? h('ul', { class: 'slides-shown' }, ...meeting.slides.map((x) => h('li', {}, h('time', {}, clock(x.at)), ' ', x.translation?.title || x.title || 'Untitled slide'))) : '',
+      meeting.slides?.length ? h('ul', { class: 'slides-shown' }, ...meeting.slides.map((x) => h('li', {}, h('time', {}, clock(x.at)), ' ', minutesSlideTitle(x)))) : '',
       m.partial ? h('div', { class: 'banner' }, icon('info'), h('div', {}, m.partial)) : '',
       h('p', { class: 'note' }, `Generated ${new Date(m.generatedAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })} from ${meeting.segments.length} lines · review before sending`));
     (exportBar.querySelector('#mailto') as HTMLAnchorElement).href = mailtoUrl(meeting);
@@ -699,7 +813,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   // ------------------------------------------------------------ demo mode (?demo): sample transcript, no mic needed
   if (new URLSearchParams(location.search).has('demo')) {
     // Remote speakers introduce themselves or are asked by name, so the demo shows speaker names.
-    const DEMO: [SegmentSource, string][] = [
+    const DEMO_ONE_WAY: [SegmentSource, string][] = [
       ['mic', 'Okay, let us start. Main item is the customer portal go-live.'],
       ['tab', 'Hi, Kumar here. Backend is mostly done, but the FPX payment gateway still fails in UAT because the bank certificate expired.'],
       ['mic', 'The bank says they will send the new certificate by Wednesday. Wei Ming, can you chase them?'],
@@ -712,6 +826,22 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
       ['tab', 'Open question: who signs off UAT on the client side? Nobody owns that yet.'],
       ['mic', 'Sarah will update the steering committee on Friday. Thanks everyone.'],
     ];
+    // A two-way English–Japanese meeting: the room speaks English, the Tokyo team Japanese, and one
+    // remote line is in Chinese.
+    const DEMO_EN_JA: [SegmentSource, string][] = [
+      ['mic', 'Okay, let us start. Main item is the customer portal go-live.'],
+      ['tab', 'こんにちは、田中です。バックエンドはほぼ完成していますが、銀行の証明書が切れたため、FPXの支払いゲートウェイがまだUATで失敗しています。'],
+      ['mic', 'The bank says they will send the new certificate by Wednesday. Tanaka-san, can you chase them?'],
+      ['tab', 'はい、今日銀行に連絡して、水曜日の朝にもう一度確認します。'],
+      ['mic', 'If we do not have it by Wednesday, we push go-live from the third of February to the tenth.'],
+      ['tab', 'アクセシビリティ監査で申請フォームに14件の問題が見つかりました。来週の金曜日までに佐藤さんが直します。'],
+      ['mic', 'Legal wants the old portal kept read-only for six months, so we agreed on six months.'],
+      ['tab', 'クライアント側でUATを承認する人はまだ決まっていません。'],
+      ['tab', '我这边没问题，下周一可以开始性能测试。'], // a third language: translated into English
+      ['mic', 'Sarah will update the steering committee on Friday. Thanks everyone.'],
+    ];
+    const enJa = () => isTwoWay(meeting) && pairOf(meeting).includes('en') && pairOf(meeting).includes('ja');
+    let DEMO = DEMO_ONE_WAY;
     const demoBtn = h('button', { class: 'ctl', 'aria-label': 'Play demo transcript', title: 'Play demo transcript' }, icon('play'));
     centerCtl.append(demoBtn);
     // Slides "shared" alongside the demo transcript: drawn on a canvas and watched like a real share.
@@ -744,7 +874,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     };
     demoBtn.addEventListener('click', () => {
       demoBtn.disabled = true;
-      void translator.prepare(langOf(meeting.spokenLocale), meeting.captionLang);
+      DEMO = enJa() ? DEMO_EN_JA : DEMO_ONE_WAY;
+      prepareTranslators();
       void assistant.warmUp();
       rolling.start(); // the demo has no live source, so draft minutes as if it did
       demoLive = true;

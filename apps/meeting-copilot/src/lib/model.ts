@@ -10,6 +10,8 @@ export interface Segment {
   speaker?: string;
   /** Caption-language translation; undefined while pending, null if unavailable */
   translation?: string | null;
+  /** In a two-way meeting, which of the two languages this line is in */
+  lang?: string;
 }
 
 /** A slide or document page read from the shared screen. Only the text is kept, never the picture. */
@@ -63,6 +65,8 @@ export interface Meeting {
   spokenLocale: string;
   /** Language captions are translated into, e.g. "zh" */
   captionLang: string;
+  /** Both languages are spoken: each line is translated into the other one (see lib/bilingual.ts) */
+  twoWay?: boolean;
   segments: Segment[];
   minutes?: Minutes;
   /** Rolling minutes windows, in order, covering segments from 0 without gaps */
@@ -100,7 +104,7 @@ export const PROMPT_LANGS = ['en', 'es', 'ja'];
 
 export const langOf = (locale: string) => locale.split('-')[0];
 
-export function newMeeting(spokenLocale: string, captionLang: string, now = Date.now()): Meeting {
+export function newMeeting(spokenLocale: string, captionLang: string, now = Date.now(), twoWay = false): Meeting {
   const d = new Date(now);
   return {
     id: crypto.randomUUID(),
@@ -108,6 +112,7 @@ export function newMeeting(spokenLocale: string, captionLang: string, now = Date
     startedAt: now,
     spokenLocale,
     captionLang,
+    ...(twoWay ? { twoWay } : {}),
     segments: [],
   };
 }

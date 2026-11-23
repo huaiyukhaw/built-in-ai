@@ -199,6 +199,23 @@ The screen or tab share already includes video, which the app currently ignores.
 
 ---
 
+## Round 4: English–Japanese meetings (2026-11-23)
+
+### 13. Two-way meetings · ✅ done 2026-11-23
+The main use is meetings between English and Japanese speakers. With **Both languages are spoken** ticked (language menu, or Settings for new meetings), each line is translated into the other language, and a line in neither language goes to English.
+- **Which language a line is in (`src/lib/bilingual.ts`):** Japanese by script (any kana, or mostly kanji), so 「FPXの支払いゲートウェイ…」 stays Japanese; then Chrome's on-device **LanguageDetector** (`src/lib/detect.ts`) for a third language. It is trusted unless the line is too short: it called 了解 Chinese with full confidence, so a kanji-only line under 6 characters stays Japanese in a Japanese pair, and Latin lines under 3 words keep the quick guess.
+- **Transcription:** Web Speech listens for one language, so in two-way meetings the room mic goes through the same Prompt API pipeline as remote audio (`startAiMic`, `transcribeTrack`), with both languages as outputs. Captions then come a phrase at a time with no live preview.
+- **Q&A and minutes** read English (`Assistant.lineText` → `modelText`): Japanese lines in their English translation, since the prompts are tuned for English. The Q&A session also accepts Japanese questions.
+- **Speakers:** 「こんにちは、田中です」 and 「佐藤と申します」 name a speaker (a bare 「〜です」 doesn't: 了解です); "-san" and other honorifics are dropped from names and owners.
+- **Downloads:** each translation direction is its own download, and Chrome failed the second one started in the same click. Translators are now prepared one at a time; any still missing are tried again on the next click anywhere, and lines that failed are translated when their translator arrives.
+
+**Results** (Chrome 157):
+- Demo (`?demo` in a two-way English–Japanese meeting): 10 lines detected right; English lines shown in Japanese and Japanese in English; the one Chinese line translated into English after one more click (the zh→en download).
+- Q&A "Who will fix the accessibility issues, and by when?" answered from a Japanese line: "Mr. Sato will fix the 14 accessibility issues … by next Friday".
+- Minutes in English with the Japanese lines' action items, owners and due dates.
+- Real audio (`mixed.wav`, Windows voices David and Haruka, as the fake mic): with the first prompt, 1 of 9 lines was translated instead of written down ("Tanaka san, can you chase the bank…" came out in Japanese, Wednesday as Tuesday). Telling the model to write each word in the language spoken, "even if a name sounds like the other language": 13 of 13 lines over two loops in the spoken language. 「こんにちは、田中です」 named the speaker.
+- **Not verified:** real voices (TTS is clean and slow), people switching language mid-sentence, and remote audio in two languages (the same pipeline as the mic, not run separately).
+
 ## Round 3: decided 2026-11-23
 
 _The app stays entirely local in the browser (client-side, nothing leaves the device). The main use is meetings between English and Japanese._

@@ -32,6 +32,10 @@ const MY_NAME = new RegExp(String.raw`\bmy name(?:'s|’s| is)\s+${NAME}`, 'iu')
 const TRAIL = new RegExp(String.raw`^${GREETING}${NAME}\s+(?:here|speaking|again)\b`, 'iu');
 // "Lim Wei Jie, you're handling the comms?": a question put to someone by name, at the start of a sentence.
 const ASK = new RegExp(String.raw`(?:^|[.!?]\s+)(?:(?:okay|ok|so|and|good|great|thanks)[\s,.!]+)?${NAME},\s+[^.!?]*\?`, 'u');
+// Japanese: 「こんにちは、田中です」 or 「田中と申します」. A bare 「〜です」 isn't enough: 「了解です」, 「大丈夫です」.
+const JA_NAME = String.raw`([A-Z][\p{L}]+|\p{Script=Han}{1,4}|[\p{Script=Katakana}ー]{2,10})`;
+const JA_GREETING = String.raw`(?:こんにちは|こんばんは|おはようございます|はじめまして|お疲れ様です|お疲れさまです|どうも)[、,。！!\s]*`;
+const JA_INTRO = new RegExp(String.raw`^(?:${JA_GREETING}${JA_NAME}(?:さん)?です|(?:${JA_GREETING})?${JA_NAME}と申します)`, 'u');
 
 /** False for capitalised words that start sentences without being names ("Just", "Okay", "Monday"). */
 export const couldBeName = (word: string) => /^\p{Lu}/u.test(word) && !NOT_NAMES.has(word.toLowerCase().replace(/['’-]/g, ''));
@@ -41,7 +45,8 @@ function cleanName(raw: string): string {
   const words: string[] = [];
   for (const w of raw.split(/\s+/)) {
     if (!couldBeName(w)) break;
-    words.push(w.replace(/['’]s$/, ''));
+    // "Tanaka-san, can you…?": the honorific isn't part of the name.
+    words.push(w.replace(/['’]s$/, '').replace(/-(san|sama|kun|chan|sensei|senpai)$/i, ''));
   }
   while (words.length && TITLES.has(words[0].toLowerCase())) words.shift();
   return words.join(' ');
@@ -54,7 +59,7 @@ const firstName = (re: RegExp, text: string) => {
 
 /** The name someone gives for themselves in this line ("Hi, this is Priya from QA" → "Priya"), or "". */
 export function introducedName(text: string): string {
-  return firstName(TRAIL, text) || firstName(LEAD, text) || firstName(MY_NAME, text);
+  return firstName(TRAIL, text) || firstName(LEAD, text) || firstName(MY_NAME, text) || (JA_INTRO.exec(text.trim())?.slice(1).find(Boolean) ?? '');
 }
 
 /** A person asked a question by name ("Muthu, can you check?" → "Muthu"), who is likely to answer next. */

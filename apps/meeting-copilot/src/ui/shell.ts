@@ -1,5 +1,6 @@
 // App chrome: top app bar, icons, snackbar and the Settings dialog.
 import { availability, type Availability } from '../lib/ai';
+import { canBeTwoWay } from '../lib/bilingual';
 import { CAPTION_LANGS, SPOKEN_LOCALES } from '../lib/model';
 import { parseTerms } from '../lib/glossary';
 import { getDefaultGlossary, getLangPrefs, getSchemePref, resolvedScheme, setDefaultGlossary, setLangPrefs, setSchemePref, watchScheme, type SchemePref } from '../lib/prefs';
@@ -7,6 +8,13 @@ import { h } from './dom';
 
 /** Decorative Material Symbol; the control around it carries the accessible name. */
 export const icon = (name: string) => h('span', { class: 'icon', 'aria-hidden': 'true', style: `--icon: var(--icon-${name})` });
+
+/** The "both languages are spoken" checkbox, in Settings and in a meeting's language menu. */
+export function twoWayCheck(box: HTMLInputElement) {
+  return h('label', { class: 'check-row' }, box,
+    h('span', {}, h('span', { class: 'check-title' }, 'Both languages are spoken'),
+      h('small', {}, 'Each line is translated into the other language. The room mic then uses the on-device model, so its captions come a phrase at a time.')));
+}
 
 // ---------------------------------------------------------------- snackbar
 const bar = () => document.getElementById('snackbar')!;
@@ -151,12 +159,17 @@ export function openSettings() {
   const langs = getLangPrefs();
   const spoken = select('pref-spoken', SPOKEN_LOCALES.map((l) => ({ value: l.locale, label: l.label })), langs.spokenLocale);
   const caption = select('pref-caption', CAPTION_LANGS.map((l) => ({ value: l.lang, label: l.label })), langs.captionLang);
-  const saveLangs = () => setLangPrefs({
-    spokenLocale: (spoken.querySelector('select') as HTMLSelectElement).value,
-    captionLang: (caption.querySelector('select') as HTMLSelectElement).value,
-  });
+  const twoWay = h('input', { type: 'checkbox', id: 'pref-two-way', checked: !!langs.twoWay }) as HTMLInputElement;
+  const twoWayRow = twoWayCheck(twoWay);
+  const value = (el: HTMLElement) => (el.querySelector('select') as HTMLSelectElement).value;
+  const saveLangs = () => {
+    twoWayRow.hidden = !canBeTwoWay(value(spoken), value(caption));
+    setLangPrefs({ spokenLocale: value(spoken), captionLang: value(caption), twoWay: twoWay.checked });
+  };
   spoken.addEventListener('change', saveLangs);
   caption.addEventListener('change', saveLangs);
+  twoWay.addEventListener('change', saveLangs);
+  twoWayRow.hidden = !canBeTwoWay(langs.spokenLocale, langs.captionLang);
 
   const terms = h('textarea', { class: 'field', id: 'pref-glossary', rows: '3', placeholder: 'Company names, product names, colleagues' }) as HTMLTextAreaElement;
   terms.value = getDefaultGlossary().join(', ');
@@ -178,6 +191,7 @@ export function openSettings() {
       h('div', { class: 'two' },
         h('div', {}, h('label', { class: 'field-label', for: 'pref-spoken' }, 'Spoken in'), spoken),
         h('div', {}, h('label', { class: 'field-label', for: 'pref-caption' }, 'Captions in'), caption)),
+      twoWayRow,
       h('label', { class: 'field-label', for: 'pref-glossary' }, 'Names and terms for every meeting, separated by commas'),
       terms,
       h('p', { class: 'muted' }, 'Helps captions, answers and minutes spell them right. Each meeting can add its own in the Agenda tab.')));
