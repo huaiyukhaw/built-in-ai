@@ -199,16 +199,16 @@ The screen or tab share already includes video, which the app currently ignores.
 
 ---
 
-## Round 3: deferred (2026-11-22)
+## Round 3: decided 2026-11-23
 
-_Parked by decision; each needs a product decision before any work. Revisit after Round 2._
+_The app stays entirely local in the browser (client-side, nothing leaves the device). The main use is meetings between English and Japanese._
 
-| # | Feature | Decision needed |
+| # | Feature | Decision |
 |---|---|---|
-| 7 | **Malay meetings** | Chrome can't do Malay on-device: no Malay in the Translator, ms-MY speech goes to Google, and the Prompt API only outputs en/es/ja. The only route is an **opt-in cloud fallback** (Gemini via Firebase AI Logic) for those meetings, which breaks "nothing leaves the device". Needs a privacy/PDPA stance and a clear UI indicator. Re-probe newer Chrome versions first. |
-| 8 | **Push action items to Jira / Planner / Outlook** | Needs sign-in (OAuth) and a small backend or connector. High value for delivery teams. Decide whether Meeting Copilot stays fully client-side. |
-| 9 | **Chrome extension version** | Side panel plus `chrome.tabCapture`: no share picker, works across tabs. A separate codebase and Web Store publishing; reuse `src/lib` and `src/audio`. |
-| 10 | **WebMCP tools** | Expose `ask_meeting`, `get_action_items` and `catch_up` to browser AI agents. Origin trial; low effort and on-trend, but early. |
+| 7 | **Malay meetings** | **Dropped.** Not needed; meetings are English and Japanese. (It would also have needed a cloud fallback: no Malay in the Translator, ms-MY speech goes to Google, the Prompt API writes en/es/ja only.) |
+| 8 | **Push action items to Jira / Planner / Outlook** | **Later.** Needs sign-in (OAuth) and a backend or connector, which conflicts with keeping the app fully client-side for now. |
+| 9 | **Chrome extension version** | **Dropped.** Not needed; the web app stays the only version. |
+| 10 | **WebMCP tools** | **Maybe later.** Expose `ask_meeting`, `get_action_items` and `catch_up` to browser AI agents. Origin trial; low effort, but early. |
 
 ## Known limits (carry forward)
 - Desktop Chrome only; Edge exposes the Summarizer but not the Prompt API.
