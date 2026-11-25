@@ -1,0 +1,6 @@
+Thanks for joining from Tokyo. Shall we start with the integration test results?
+はい、結果を共有します。 先週のテストでは、注文データの連携で三件のエラーがありました。 原因は日付の形式で、日本側のシステムは年月日の順番で送っています。
+Understood. We can convert the date format on our side, that is a small change. We will deploy the fix to the test environment by Wednesday and send you a note when it is ready.
+ありがとうございます。水曜日の午後にもう一度テストします。 もう一つ、本番の切り替えは来月の十五日で問題ないでしょうか。
+The fifteenth works for us, as long as the second test passes. If it fails again, we will move the cutover by one week and tell you by Friday.
+了解しました。では、金曜日までに結果を連絡します。

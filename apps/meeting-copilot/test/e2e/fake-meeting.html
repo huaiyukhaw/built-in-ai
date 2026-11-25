@@ -2,12 +2,15 @@
 <html lang="en">
 <head><meta charset="utf-8"><title>Fake Meeting</title></head>
 <body style="font-family:system-ui;background:#202124;color:#fff;display:grid;place-items:center;height:100vh;margin:0">
-  <!-- Stand-in for a Teams/Zoom tab: plays remote.wav so Meeting Copilot can capture it as tab audio.
+  <!-- Stand-in for a Teams/Zoom tab: plays remote.wav (or ?wav=…) so Meeting Copilot can capture it as tab audio.
        Chrome is launched with --auto-select-tab-capture-source-by-title=Fake Meeting.
        With ?slides it also shows a slide deck that moves on every 15 s, for slide-aware notes. -->
   <div><h1>🎥 Fake Meeting</h1><p id="s">Waiting…</p><audio id="a" src="remote.wav" loop></audio></div>
   <script>
     const a = document.getElementById('a'), s = document.getElementById('s');
+    // ?wav=near-en.wav plays another recording (e.g. the quieter ones from degrade.mjs)
+    const wav = new URLSearchParams(location.search).get('wav');
+    if (wav) a.src = wav;
     a.play().then(() => (s.textContent = 'Playing remote speaker audio (loops)')).catch((e) => (s.textContent = 'Autoplay blocked: ' + e.message));
   </script>
   <script>

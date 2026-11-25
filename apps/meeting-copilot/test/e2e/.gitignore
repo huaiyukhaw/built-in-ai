@@ -1,1 +1,5 @@
 *.wav
+local/
+# reference copies written by degrade.mjs
+near-*.txt
+room-*.txt

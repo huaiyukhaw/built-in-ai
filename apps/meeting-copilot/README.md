@@ -56,6 +56,31 @@ bash test/e2e/chrome.sh ai      # then open /eval.html in that window and press 
 - **Baseline:** download the JSON and save it as `test/evals/results/baseline.json`. The page then shows each new run's change against it. The current baseline is from the agenda tracker (2026-11-23); ROADMAP.md #2–#5 record each step's numbers.
 - **Options:** `?only=id1,id2` runs some samples only; `?autorun` starts at once. Results vary between runs, so treat a change of one item as noise.
 
+### Transcription replay and diagnostics
+
+Run this before changing anything in how remote audio (or the two-way room mic) is chunked or transcribed.
+
+```bash
+powershell -File test/e2e/make-realistic.ps1                       # meeting-like speech: fast, short gaps, a quiet speaker
+node test/e2e/degrade.mjs realistic-en.wav near-en.wav --gain -8   # a speaker across the room (also --snr, --reverb)
+pnpm dev                                                           # then open /replay.html?wav=/test/e2e/near-en.wav&langs=en and press Start
+```
+
+`/replay.html` runs a recording through the same chunker and Gemini Nano transcriber as the app and scores it against the `.txt` next to it: word error rate for English, character error rate for Japanese, with "missed" counted separately. Any `VoiceChunker` option can be overridden in the URL (`&minChunkMs=4000`), and `&normalize=0` sends clips at their recorded level.
+
+Results on 2026-11-25 (Chrome 158), error rate:
+
+| Recording | Before (fixed RMS 0.01 threshold) | After (threshold relative to noise, pre-roll, gain) |
+|---|---|---|
+| realistic-en (clean TTS) | 0.7% | 1.0% |
+| near-en (−8 dB, reverb, noise) | 81.5%, most speech dropped as silence | 5.3–6.3% |
+| room-en (−18 dB, reverb, noise) | 100%, nothing transcribed | 11.6% |
+| realistic-mixed (English + Japanese) | 8.5%, a clipped first word, 水曜日 → 土曜日 | 4.5% |
+
+Longer clips run faster but miss more (6 s minimum: ×0.84 real time, 8.6%; 1.5 s: ×1.07, 5.3%), so the 1.5 s minimum stays.
+
+**Real meetings:** Settings → Troubleshooting → **Save transcription diagnostics** records, while a meeting is live, the shared-tab audio and the two-way room mic to a folder you pick (a WAV per source and `log.jsonl`: each clip's place in the recording, its wait in the queue, model time, text or error, audio dropped as silence, room-mic lines removed as echo, slide reads). Copy a meeting's folder to `test/e2e/local/` (gitignored) and open `/replay.html?wav=/test/e2e/local/<folder>/tab.wav&log=/test/e2e/local/<folder>/log.jsonl&langs=en,ja` to replay it next to what the app wrote live.
+
 ## Features
 
 | Feature | How it works |
@@ -73,7 +98,7 @@ bash test/e2e/chrome.sh ai      # then open /eval.html in that window and press 
 | Minutes | Drafted in the background while you're live, ~3 minutes of talk at a time: Summarizer key points plus Prompt API JSON-schema extraction of decisions, action items and open questions. A **So far** list of action items grows in the Minutes tab. End or Generate minutes only reads the rest and merges (near-duplicates collapse; "Room"/"Remote" are never used as owners) |
 | Names and terms | A glossary per meeting in the Agenda tab, plus terms for every meeting in Settings. Speaker names are added when people introduce themselves. The room mic gets them as Web Speech hints (`SpeechRecognitionPhrase`, on-device recognition, Chrome 157), remote audio in the transcription prompt, and Q&A and minutes in their prompts. Finished lines are corrected to the listed spelling ("red only" → "read-only", "fpx" → "FPX"; `correctTerms`). An earlier meeting with the same title offers its terms |
 | Agenda | An Agenda tab: paste the agenda (one item per line) and, optionally, the planned length. Each background minutes window is checked against it with the Prompt API (JSON schema of item numbers), then checked against the words actually said (`groundCheck`). Items show as not yet, discussed or decided. While live, the tab shows "12 min left · 2 items not covered", and a message appears at 10 min left and at time up if items are still open. Items nobody got to go into the minutes as open questions, and the export lists the agenda with each status |
-| Sharing the model | One on-device model does everything, so background minutes wait while remote audio is being transcribed and stop at once when you ask a question (`ModelGate`) |
+| Sharing the model | One on-device model does everything. Background work (minutes, slide reading) waits until every queued clip is transcribed and stops at once when you ask a question (`ModelGate`). End waits for queued clips before writing the minutes |
 | Export | Rich-HTML copy that pastes as formatted text with a table into Outlook/Teams; `.md` download; `mailto:` draft; Web Share |
 | History | IndexedDB, searchable across titles, transcripts, translations and minutes |
 | Stays awake | Screen Wake Lock while capturing |

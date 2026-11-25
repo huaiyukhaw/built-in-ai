@@ -1,0 +1,8 @@
+Okay, I think everyone is here, so let us get going. We have three things today: the portal launch date, the data migration, and the support rota for March.
+On the launch date, the payment gateway is still failing in staging. The bank certificate expired last week and they have not sent the new one yet. I emailed them twice and called once, and the answer is always that it is with their security team. So realistically we cannot go live on the third of February unless that certificate arrives by Wednesday.
+Right, so the decision is that the third of February only holds if the certificate is here by Wednesday, otherwise we move to the tenth.
+Sorry, can I just add something here? The tenth clashes with the finance freeze, so if we slip it should be the seventeenth, not the tenth.
+Good point, the seventeenth then. Next, the migration.
+The migration dry run finished on Monday and it took about six hours, which is longer than the four hour window we have on the night. Most of the time goes into the document attachments, roughly forty thousand files, and the index rebuild at the end. My suggestion is that we copy the attachments the weekend before, so on the night we only move the changes since then, and we rebuild the index after we reopen. That should bring it under three hours, but I would like one more dry run to prove it.
+I can book the staging environment for a second dry run on Thursday night.
+Great, thank you. Last thing, the support rota. Two people are on leave in March, so we need someone to cover the evening shift on Tuesdays and Thursdays. Can I get a volunteer, or I will ask the team lead to assign it by Friday.
