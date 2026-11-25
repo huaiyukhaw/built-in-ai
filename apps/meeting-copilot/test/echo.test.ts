@@ -21,6 +21,9 @@ describe('isEcho', () => {
     ['Great, and design?', 'It is Aisha. The onboarding screens are approved.'],
     ['Okay.', 'Yes.'],
     ['Let us push the release to Monday', 'The release notes are ready for review'],
+    // someone in the room answering with the remote speaker's word
+    ['Yes, Friday.', 'I will fix all of them by next Friday.'],
+    ['Okay, Wednesday then.', 'Can you chase the bank by Wednesday?'],
   ])('%s ≠ %s', (mic, remote) => expect(isEcho(mic, remote)).toBe(false));
 });
 

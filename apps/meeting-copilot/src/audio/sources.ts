@@ -1,7 +1,8 @@
 import { create, type Progress } from '../lib/ai';
 import { modelGate } from '../lib/gate';
 import { langOf, PROMPT_LANGS } from '../lib/model';
-import { VoiceChunker } from './chunker';
+import type { SourceRecorder } from '../lib/diagnostics';
+import { normalize, VoiceChunker, type Chunk } from './chunker';
 
 export interface SourceEvents {
   /** A finished line. Remote audio also says when its clip ended (ms since epoch), for echo matching. */
@@ -12,13 +13,24 @@ export interface SourceEvents {
   onEnded?(): void;
   /** Free-form status for the UI, e.g. backlog warnings */
   onStatus?(msg: string): void;
+  /** Opt-in diagnostics: clip-transcribed sources record their audio and every clip here. */
+  diagnostics?: SourceRecorder;
 }
 
 export interface AudioSource {
   /** true when audio never leaves the device */
   readonly local: boolean;
   stop(): void;
+  /** Resolves once clips captured before stop() have all been transcribed (clip-based sources only). */
+  finished?(): Promise<void>;
 }
+
+let queuedClips = 0;
+/** Clips captured but not yet transcribed, across all sources: leaving now would lose them. */
+export const pendingClips = () => queuedClips;
+
+/** After this many clips fail in a row the source gives up; a single bad clip is skipped. */
+const MAX_FAILURES_IN_A_ROW = 3;
 
 // ---------------------------------------------------------------- mic
 
@@ -100,7 +112,7 @@ async function echoCancelledMic(): Promise<MediaStreamTrack | null> {
 
 // ---------------------------------------------------------------- tab audio
 
-const SAMPLE_RATE = 16_000;
+export const SAMPLE_RATE = 16_000;
 export const hasTabCapture = () => 'getDisplayMedia' in (navigator.mediaDevices ?? {}) && 'LanguageModel' in globalThis;
 export const tabLangSupported = (locale: string) => PROMPT_LANGS.includes(langOf(locale));
 
@@ -132,6 +144,38 @@ export function transcribeRequest(terms: string[]): string {
   return terms.length
     ? `Transcribe this audio. These names and terms may be spoken; if you hear them, spell them like this: ${terms.join(', ')}. Do not write any of them unless they are spoken.`
     : 'Transcribe this audio.';
+}
+
+/** One clip (16 kHz mono) through a fresh clone of the transcriber. Returns '' when the model hears no speech. */
+export async function transcribeClip(base: LanguageModelSession, samples: Float32Array, terms: string[], o: { normalize?: boolean } = {}): Promise<string> {
+  const audio = o.normalize === false ? samples : normalize(samples);
+  const buffer = new AudioBuffer({ length: audio.length, sampleRate: SAMPLE_RATE, numberOfChannels: 1 });
+  buffer.copyToChannel(audio as Float32Array<ArrayBuffer>, 0);
+  const s = await base.clone();
+  try {
+    const text = (await s.prompt([{ role: 'user', content: [
+      { type: 'text', value: transcribeRequest(terms) },
+      { type: 'audio', value: buffer },
+    ] }])).trim();
+    return cleanTranscript(text);
+  } finally {
+    s.destroy();
+  }
+}
+
+const CJK = String.raw`\p{Script=Han}\p{Script=Hiragana}\p{Script=Katakana}ー、。！？「」`;
+const LABEL = /^\s*(?:transcript(?:ion)?|english|japanese|spanish|日本語|英語|transcripción)\s*[:：]\s*/gimu;
+/** Seen once on clean speech: "Okay everyone, let us start. ✨" */
+const EMOJI = /\p{Extended_Pictographic}\uFE0F?/gu;
+const CJK_GAP = new RegExp(`(?<=[${CJK}])[ \u3000]+(?=[${CJK}])`, 'gu');
+
+/**
+ * Tidy what the model wrote: "[no speech]" becomes '', a leading "日本語:" or "Transcript:" label and
+ * stray emoji are dropped, and spaces it sometimes puts between Japanese words ("水曜日 の 午後") are removed.
+ */
+export function cleanTranscript(text: string): string {
+  const t = text.replace(LABEL, '').replace(EMOJI, '').replace(CJK_GAP, '').replace(/[ \t]{2,}/g, ' ').trim();
+  return /^\[?no speech\]?\.?$/i.test(t) ? '' : t;
 }
 
 export type RemoteSurface = 'browser' | 'window' | 'monitor';
@@ -178,8 +222,8 @@ export async function startTabAudio(transcriber: Promise<LanguageModelSession>, 
     throw new Error(noAudioMessage(surface));
   }
 
-  const stop = await transcribeTrack(audio, transcriber, ev, terms, () => stream.getTracks().forEach((t) => t.stop()));
-  return { local: true, surface, video, stop };
+  const { stop, finished } = await transcribeTrack(audio, transcriber, ev, terms, () => stream.getTracks().forEach((t) => t.stop()));
+  return { local: true, surface, video, stop, finished };
 }
 
 /**
@@ -190,65 +234,83 @@ export async function startTabAudio(transcriber: Promise<LanguageModelSession>, 
 export async function startAiMic(transcriber: Promise<LanguageModelSession>, ev: SourceEvents, terms: () => string[] = () => []): Promise<AudioSource> {
   const track = await echoCancelledMic();
   if (!track) throw new Error('Microphone permission was denied.');
-  const stop = await transcribeTrack(track, transcriber, ev, terms, () => track.stop());
-  return { local: true, stop };
+  const { stop, finished } = await transcribeTrack(track, transcriber, ev, terms, () => track.stop());
+  return { local: true, stop, finished };
 }
 
 /**
  * Pause-delimited chunks of an audio track → AudioBuffer → Prompt API audio input, one clip at a time.
- * Returns a stop function; `release` stops the capture itself.
+ * `release` stops the capture itself; `finished` resolves when the clip queue is empty.
  */
-async function transcribeTrack(audio: MediaStreamTrack, transcriber: Promise<LanguageModelSession>, ev: SourceEvents, terms: () => string[], release: () => void): Promise<() => void> {
+async function transcribeTrack(audio: MediaStreamTrack, transcriber: Promise<LanguageModelSession>, ev: SourceEvents, terms: () => string[], release: () => void): Promise<{ stop(): void; finished(): Promise<void> }> {
   const ctx = new AudioContext({ sampleRate: SAMPLE_RATE });
   await ctx.audioWorklet.addModule(new URL('/pcm-worklet.js', location.href));
   const src = ctx.createMediaStreamSource(new MediaStream([audio]));
   const tap = new AudioWorkletNode(ctx, 'pcm-tap');
   src.connect(tap); // not connected to destination: nothing is played back
   const chunker = new VoiceChunker({ sampleRate: SAMPLE_RATE });
+  const rec = ev.diagnostics;
+  const secs = (n: number) => Math.round((n / SAMPLE_RATE) * 100) / 100;
+  if (rec) chunker.onDrop = (d) => rec.log({ ev: 'drop', start: secs(d.start), seconds: secs(d.length), voicedMs: d.voicedMs });
   const base = await transcriber;
 
   let queue = Promise.resolve();
   let backlog = 0;
   let stopped = false;
+  let failures = 0;
+  let releaseGate: (() => void) | undefined;
 
-  const transcribe = (samples: Float32Array) => {
+  const transcribe = ({ samples, start, voicedMs }: Chunk) => {
     const clipEnd = Date.now();
+    const clip = { start: secs(start), seconds: secs(samples.length), voicedMs, noiseFloor: Math.round(chunker.noiseFloor * 1e5) / 1e5, queued: backlog };
     backlog++;
+    queuedClips++;
+    // Background work (minutes, slide reading) waits until the whole queue is done, not just this clip.
+    releaseGate ??= modelGate.hold();
     if (backlog > 3) ev.onStatus?.(`Transcription is ${backlog} clips behind…`);
     // Clips already queued (including the final flush on stop) still get transcribed.
     // Background minutes work waits while transcription runs (see ModelGate).
-    queue = queue.then(() => modelGate.live(async () => {
-      const buffer = new AudioBuffer({ length: samples.length, sampleRate: SAMPLE_RATE, numberOfChannels: 1 });
-      buffer.copyToChannel(samples as Float32Array<ArrayBuffer>, 0);
+    queue = queue.then(async () => {
       ev.onInterim?.('…');
-      const s = await base.clone();
+      const t0 = Date.now();
       try {
-        const text = (await s.prompt([{ role: 'user', content: [
-          { type: 'text', value: transcribeRequest(terms()) },
-          { type: 'audio', value: buffer },
-        ] }])).trim();
-        if (text && !/^\[?no speech\]?\.?$/i.test(text)) ev.onFinal(text, clipEnd);
+        const text = await transcribeClip(base, samples, terms());
+        failures = 0;
+        rec?.log({ ev: 'clip', ...clip, waitMs: t0 - clipEnd, ms: Date.now() - t0, text });
+        if (text) ev.onFinal(text, clipEnd);
+      } catch (err) {
+        rec?.log({ ev: 'clip', ...clip, waitMs: t0 - clipEnd, ms: Date.now() - t0, error: `${(err as Error).name}: ${(err as Error).message}` });
+        throw err;
       } finally {
-        s.destroy();
         ev.onInterim?.('');
       }
-    })).catch((err: Error) => ev.onError(err)).finally(() => {
+    }).catch((err: Error) => {
+      // One clip the model can't handle (e.g. "untested language" on noise) used to switch the whole
+      // source off for the rest of the meeting. Skip it; give up only if the model keeps failing.
+      if (++failures >= MAX_FAILURES_IN_A_ROW && !stopped) ev.onError(err);
+    }).finally(() => {
       backlog--;
+      queuedClips--;
       if (backlog <= 1) ev.onStatus?.('');
+      if (!backlog) { releaseGate?.(); releaseGate = undefined; }
     });
   };
 
-  tap.port.onmessage = (e: MessageEvent<Float32Array>) => { for (const c of chunker.push(e.data)) transcribe(c); };
+  tap.port.onmessage = (e: MessageEvent<Float32Array>) => {
+    rec?.audio(e.data);
+    for (const c of chunker.push(e.data)) transcribe(c);
+  };
 
   const stop = () => {
     if (stopped) return;
     const last = chunker.flush();
     if (last) transcribe(last);
+    rec?.log({ ev: 'stop', queued: backlog });
     stopped = true;
     tap.port.onmessage = null;
     release();
     void ctx.close();
   };
   audio.addEventListener('ended', () => { stop(); ev.onEnded?.(); });
-  return stop;
+  return { stop, finished: () => queue };
 }

@@ -3,6 +3,9 @@
 // - `urgent` (Q&A, catch-up, Generate minutes): someone is waiting, so running background work is aborted.
 // - `live` (tab-audio transcription): background work waits for it to finish, but isn't aborted,
 //   because speech can be continuous and aborting would starve background work forever.
+//   A transcriber holds the gate (`hold`) for as long as it has clips queued, not just per clip:
+//   released between clips, a 20 s slide read slipped into every gap and the captions fell
+//   minutes behind.
 // - background work starts only when nothing urgent or live is running.
 
 export class ModelGate {
@@ -20,8 +23,20 @@ export class ModelGate {
   }
 
   async live<T>(fn: () => Promise<T>): Promise<T> {
+    const release = this.hold();
+    try { return await fn(); } finally { release(); }
+  }
+
+  /** Keep background work from starting until the returned function is called (once). */
+  hold(): () => void {
     this.#live++;
-    try { return await fn(); } finally { this.#live--; this.#wake(); }
+    let held = true;
+    return () => {
+      if (!held) return;
+      held = false;
+      this.#live--;
+      this.#wake();
+    };
   }
 
   /** Resolves when nothing urgent or live is running. */

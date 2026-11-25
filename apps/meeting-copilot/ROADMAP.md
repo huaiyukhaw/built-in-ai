@@ -216,6 +216,26 @@ The main use is meetings between English and Japanese speakers. With **Both lang
 - Real audio (`mixed.wav`, Windows voices David and Haruka, as the fake mic): with the first prompt, 1 of 9 lines was translated instead of written down ("Tanaka san, can you chase the bank…" came out in Japanese, Wednesday as Tuesday). Telling the model to write each word in the language spoken, "even if a name sounds like the other language": 13 of 13 lines over two loops in the spoken language. 「こんにちは、田中です」 named the speaker.
 - **Not verified:** real voices (TTS is clean and slow), people switching language mid-sentence, and remote audio in two languages (the same pipeline as the mic, not run separately).
 
+## Round 5: transcription quality (2026-11-25)
+
+### 14. Captions missed much of real meetings · ✅ fixed 2026-11-25
+Real meetings (shared tab, and the two-way room mic) lost a lot of speech, and the translations, Q&A and minutes built on it suffered. Clean test speech had hidden this. Measured with a new replay page (`/replay.html`, word error rate against a reference) on meeting-like recordings: fast speech, short gaps, a quiet speaker, reverb and noise (`make-realistic.ps1`, `degrade.mjs`).
+
+Causes found, and fixes:
+- **Quiet speech was thrown away as silence.** The chunker used a fixed level (RMS 0.01, −40 dBFS), so a remote speaker with a weak mic, or someone across the room, never reached the model: 81.5% of words missed at −41 dBFS, 100% at −51 dBFS. Speech is now detected relative to the measured background noise (+11 dB to start, +6 dB to continue). Result: 5.3–6.3% and 11.6% error.
+- **First syllables were clipped** ("The fifteenth" → "of fifteenth"): 300 ms of audio before speech now goes with the clip. Long monologues are cut at the quietest moment of their last 3 s instead of mid-word, and quiet clips are brought up to speaking level before the model hears them.
+- **Captions fell minutes behind.** Between two queued clips the model was briefly free, and a slide read (20–25 s) or a minutes window started in that gap and wasn't stopped. In the live test, 7 minutes of continuous speech built a backlog of 48 clips, with clips waiting up to 3 minutes. The transcriber now holds the model while any clip is queued (`ModelGate.hold`); background work runs when the queue is empty. Same test after the fix: 34 of 34 clips, longest wait 11 s, 2 clips left at End.
+- **End wrote the minutes before the queue was done**, and leaving afterwards lost the clips still queued. End now waits ("Finishing the transcript (N clips left)…"), leaving the meeting lets them finish in the background, and closing the tab warns.
+- **One bad clip switched the source off** for the rest of the meeting (any model error, e.g. "untested language" on noise). A failed clip is now skipped; the source stops only after 3 failures in a row.
+- **Short replies were removed as echo:** "Yes, Friday." in the room after a remote "…by Friday" matched the one-word echo rule. A one-word match now needs the whole mic line inside the remote one.
+- **Output cleanup:** "日本語:" labels, emoji and spaces between Japanese words are removed.
+
+Mixed English/Japanese (clean): 8.5% → 4.5%; 水曜日 (heard as 土曜日) and もう一つ (heard as こんばんは) now right.
+
+**Diagnostics for real meetings:** Settings → Troubleshooting → Save transcription diagnostics records the clip-transcribed audio and a per-clip log to a folder the user picks, for replaying a real meeting on `/replay.html` next to what the app wrote live (README → Transcription replay and diagnostics).
+
+**Not verified:** real voices and real Teams audio (the fixes are measured on Windows TTS made quieter, noisier and reverberant). Very quiet Japanese (−8 dB, x-soft) still comes back wrong or invented (「本日の記者会見は…」); that looks like the model's limit, and the next real-meeting diagnostics should show how often it happens. The Web Speech room mic (one-language meetings) is unchanged.
+
 ## Round 3: decided 2026-11-23
 
 _The app stays entirely local in the browser (client-side, nothing leaves the device). The main use is meetings between English and Japanese._

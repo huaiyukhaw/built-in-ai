@@ -6,6 +6,7 @@ import { fileName, mailtoUrl, toHtml, toMarkdown } from '../lib/export';
 import { isAbort, modelGate } from '../lib/gate';
 import { renderMarkdown } from '../lib/markdown';
 import { mergeExtractions } from '../lib/merge';
+import { DiagnosticsSession, diagnosticsEnabled, diagnosticsFolder, sessionLabel, type SourceRecorder } from '../lib/diagnostics';
 import { EchoFilter } from '../lib/echo';
 import { correctTerms } from '../lib/glossary';
 import { LIVE_WINDOW, RollingMinutes } from '../lib/rolling';
@@ -15,7 +16,7 @@ import { watchSlides, type SlideWatcher } from '../audio/slide-watcher';
 import { nextSpeaker, renameSpeaker, sourceLabel } from '../lib/speakers';
 import { clock } from '../lib/transcript';
 import { TranslatorPool } from '../lib/translate';
-import { hasMic, hasTabCapture, prepareTabTranscriber, prepareTranscriber, startAiMic, startMic, startTabAudio, tabLangSupported, type AudioSource } from '../audio/sources';
+import { hasMic, hasTabCapture, pendingClips, prepareTabTranscriber, prepareTranscriber, startAiMic, startMic, startTabAudio, tabLangSupported, type AudioSource } from '../audio/sources';
 import { canBeTwoWay, chooseLang, detectLang, isTwoWay, langName, lineLangs, modelText, pairOf } from '../lib/bilingual';
 import { detectLanguages, prepareDetector } from '../lib/detect';
 import { chooseRemoteKind } from './remote-picker';
@@ -168,6 +169,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   const tabBtn = h('button', { class: 'ctl', id: 'tab-btn', 'aria-pressed': 'false', 'aria-label': 'Caption remote speakers', title: 'Caption remote speakers (meeting tab or desktop app)', disabled: !hasTabCapture() }, icon('present'));
   const floatBtn = h('button', { class: 'ctl', 'aria-label': 'Float captions over other windows', title: 'Float captions', disabled: !hasPiP() }, icon('pip'));
   const privacy = h('span', { class: 'tag ok privacy', hidden: true });
+  const diagTag = h('span', { class: 'tag warn', hidden: true, title: 'Audio and transcription details are being saved to your diagnostics folder (Settings → Troubleshooting)' },
+    icon('download'), h('span', { class: 'label' }, 'Saving diagnostics'));
   // Shown only while the meeting is live; afterwards Generate minutes (Minutes tab) does the same work.
   let demoLive = false;
   const endBtn = h('button', { class: 'btn-end', title: 'Stop listening and write the minutes', hidden: true }, icon('call-end'), h('span', { class: 'label' }, 'End'));
@@ -175,7 +178,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   const controlBar = h('div', { class: 'control-bar', role: 'toolbar', 'aria-label': 'Meeting controls' },
     h('div', { class: 'left' }, langChip, langMenu),
     centerCtl,
-    h('div', { class: 'right' }, privacy, endBtn));
+    h('div', { class: 'right' }, diagTag, privacy, endBtn));
 
   root.replaceChildren(h('div', { class: 'meeting' }, banner, download,
     h('div', { class: 'meeting-grid' }, stage, side), controlBar));
@@ -240,6 +243,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   let echoes = 0;
   const echo = new EchoFilter<Segment>(commitSegment, (seg) => {
     document.getElementById(`seg-${seg.id}`)?.remove();
+    diag?.log({ ev: 'echo-drop', text: seg.text });
     if (++echoes === 1) snackbar('The room mic is hearing the meeting through your speakers. Those repeated lines are removed; headphones avoid them.');
   });
 
@@ -337,6 +341,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
         // A two-way meeting's slides may be in either language: read as written, then tell which.
         const langs = isTwoWay(meeting) ? pairOf(meeting) : [slideLang()];
         let read: Awaited<ReturnType<Assistant['readSlide']>> | undefined;
+        const t0 = Date.now();
         for (let attempt = 0; attempt < 5 && read === undefined && !slidesClosed; attempt++) {
           try {
             read = await modelGate.background((signal) => assistant.readSlide(frame, langs, signal));
@@ -345,6 +350,7 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
           }
         }
         frame.close();
+        diag?.log({ ev: 'slide-read', ms: Date.now() - t0, title: read?.title ?? null, waited: Date.now() - at });
         if (read) {
           const text = [read.title, ...read.points].join(' ');
           const lang = langs.length > 1 ? chooseLang(text, pairOf(meeting), await detectLanguages(text)) : langs[0];
@@ -438,13 +444,36 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     refreshLive();
   }
 
-  const sourceEvents = (kind: SegmentSource) => ({
+  const sourceEvents = (kind: SegmentSource, diagnostics?: SourceRecorder) => ({
     onFinal: (t: string, clipEnd?: number) => { interim.textContent = ''; addSegment(kind, t, clipEnd); },
     onInterim: (t: string) => { interim.textContent = t; },
-    onError: (err: Error) => { fail(err); stopSource(kind); },
+    onError: (err: Error) => { diagnostics?.log({ ev: 'error', error: err.message }); fail(err); stopSource(kind); },
     onEnded: () => stopSource(kind),
     onStatus: (msg: string) => { if (msg) snackbar(msg); },
+    diagnostics,
   });
+
+  // Opt-in diagnostics (Settings → Troubleshooting): one folder per live session, a WAV per clip-transcribed source.
+  let diag: DiagnosticsSession | undefined;
+  /** Call early in a click: after a browser restart Chrome asks again for the folder, which needs user activation. */
+  async function diagnosticsAccess(): Promise<FileSystemDirectoryHandle | undefined> {
+    if (!diagnosticsEnabled()) return undefined;
+    const folder = await diagnosticsFolder().catch(() => undefined);
+    if (!folder) snackbar('Diagnostics are on, but Chrome can’t write to the folder. Choose it again in Settings.');
+    return folder;
+  }
+  function recorder(folder: FileSystemDirectoryHandle | undefined, kind: SegmentSource, info: Record<string, unknown>): SourceRecorder | undefined {
+    if (!folder) return undefined;
+    diag ??= new DiagnosticsSession(folder, sessionLabel(Date.now(), meeting.title));
+    diagTag.hidden = false;
+    return diag.source(kind, { meetingId: meeting.id, ...info });
+  }
+  async function closeDiagnostics() {
+    const d = diag;
+    diag = undefined;
+    diagTag.hidden = true;
+    await d?.close();
+  }
 
   micBtn.addEventListener('click', async () => {
     if (sources.has('mic')) return stopSource('mic');
@@ -453,8 +482,9 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
       prepareTranslators();
       void assistant.warmUp();
       // Web Speech listens for one language, so a two-way meeting's room mic goes to the model.
+      const rec = isTwoWay(meeting) ? recorder(await diagnosticsAccess(), 'mic', { langs: pairOf(meeting) }) : undefined;
       const src = isTwoWay(meeting)
-        ? await startAiMic(prepareTranscriber(pairOf(meeting), onProgress), sourceEvents('mic'), terms)
+        ? await startAiMic(prepareTranscriber(pairOf(meeting), onProgress), sourceEvents('mic', rec), terms)
         : await startMic(meeting.spokenLocale, sourceEvents('mic'), terms);
       sources.set('mic', src);
       micBtn.setAttribute('aria-pressed', 'true');
@@ -468,6 +498,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     if (!tabLangSupported(meeting.spokenLocale)) {
       return fail(new Error('Remote captions support English, Spanish and Japanese meetings. Use the room mic for other languages.'));
     }
+    // Before the picker: a folder-permission prompt here leaves the picker's own click to start the share.
+    const folder = await diagnosticsAccess();
     const kind = await chooseRemoteKind();
     if (!kind) return;
     try {
@@ -475,7 +507,8 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
       void assistant.warmUp();
       const transcriber = isTwoWay(meeting) ? prepareTranscriber(pairOf(meeting), onProgress) : prepareTabTranscriber(meeting.spokenLocale, onProgress);
       transcriber.catch(() => {}); // surfaced through startTabAudio below
-      const src = await startTabAudio(transcriber, sourceEvents('tab'), kind, terms);
+      const rec = recorder(folder, 'tab', { kind, langs: isTwoWay(meeting) ? pairOf(meeting) : [meeting.spokenLocale] });
+      const src = await startTabAudio(transcriber, sourceEvents('tab', rec), kind, terms);
       sources.set('tab', src);
       if (src.video) slideWatcher = watchSlides(src.video, onFrame);
       tabBtn.setAttribute('aria-pressed', 'true');
@@ -605,12 +638,21 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
     } catch (err) { floatBtn.setAttribute('aria-pressed', 'false'); fail(err); }
   });
 
-  endBtn.addEventListener('click', () => {
+  endBtn.addEventListener('click', async () => {
     const wasLive = sources.size > 0 || demoLive;
     demoLive = false;
+    const finishing = [...sources.values()].map((s) => s.finished?.());
     for (const k of [...sources.keys()]) stopSource(k);
     refreshLive();
     selectTab(tabMin);
+    // Clip transcription runs about as fast as speech, so clips can still be queued: minutes written
+    // now would miss the end of the meeting.
+    if (pendingClips()) {
+      snackbar(`Finishing the transcript (${pendingClips()} clips left)…`);
+      await Promise.all(finishing);
+      echo.flush();
+    }
+    await closeDiagnostics();
     if (meeting.segments.length && (!meeting.minutes || wasLive)) genBtn.click();
     else if (!meeting.segments.length) snackbar('Nothing was captioned yet');
   });
@@ -890,11 +932,14 @@ export function renderMeeting(root: HTMLElement, meeting: Meeting, onBack: () =>
   refreshTabHint();
   renderAllLines();
   renderMinutes();
-  const beforeUnload = (e: BeforeUnloadEvent) => { if (sources.size) e.preventDefault(); };
+  const beforeUnload = (e: BeforeUnloadEvent) => { if (sources.size || pendingClips()) e.preventDefault(); };
   addEventListener('beforeunload', beforeUnload);
 
   return async () => {
+    const finishing = [...sources.values()].map((s) => s.finished?.());
     for (const k of [...sources.keys()]) stopSource(k);
+    // Leaving mid-backlog: let queued clips finish in the background and save them.
+    void Promise.all(finishing).then(() => { echo.flush(); void closeDiagnostics(); return saver.flush(); });
     echo.flush();
     echo.dispose();
     slidesClosed = true;

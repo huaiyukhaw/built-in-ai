@@ -17,12 +17,14 @@ const plain = (s: string) => s.toLowerCase().replace(/[^\p{L}\p{N}]+/gu, ' ').tr
  * True when `mic` looks like the same speech as `remote`. Speech heard through speakers is often
  * misrecognised and split at different pauses, so this compares content words against the
  * shorter line: half of them shared, and at least two. A mic fragment of one content word
- * ("Friday") matches when the remote line contains it; otherwise short lines must be the same text.
+ * ("Friday") matches when the remote line contains the whole fragment; otherwise short lines must be the same text.
  */
 export function isEcho(mic: string, remote: string, threshold = 0.5): boolean {
   const a = tokens(mic);
   const b = tokens(remote);
-  if (a.size === 1) return b.has([...a][0]);
+  // A one-word fragment is an echo only if it is all the mic heard: "Friday" is, but a reply that
+  // repeats the other side's word ("Yes, Friday.") is someone in the room answering.
+  if (a.size === 1) return b.has([...a][0]) && ` ${plain(remote)} `.includes(` ${plain(mic)} `);
   if (Math.min(a.size, b.size) < 2) return plain(mic) !== '' && plain(mic) === plain(remote);
   let shared = 0;
   for (const w of a) if (b.has(w)) shared++;

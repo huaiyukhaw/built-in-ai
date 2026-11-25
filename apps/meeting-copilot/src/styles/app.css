@@ -230,6 +230,7 @@ main:has(> .meeting) { padding-block-end: 0; }
 .check-row .check-title { display: block; font: var(--body-m); color: var(--on-surface); }
 .check-row small { display: block; font: var(--body-s); color: var(--on-surface-variant); }
 .settings .check-row { margin-block: 0.75rem; }
+.settings .diag-folder { display: flex; align-items: center; gap: 0.5rem; padding-inline-start: 1.875rem; color: var(--on-surface-variant); font: var(--body-s); }
 @media (prefers-reduced-motion: no-preference) {
   .lang-menu:popover-open { animation: pop-in var(--dur-m) var(--ease-emph); transform-origin: bottom left; }
   @keyframes pop-in { from { opacity: 0; scale: 0.92; } }

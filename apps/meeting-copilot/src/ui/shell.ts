@@ -1,6 +1,7 @@
 // App chrome: top app bar, icons, snackbar and the Settings dialog.
 import { availability, type Availability } from '../lib/ai';
 import { canBeTwoWay } from '../lib/bilingual';
+import { canRecordDiagnostics, chooseDiagnosticsFolder, diagnosticsEnabled, getDiagnosticsFolder, setDiagnosticsEnabled } from '../lib/diagnostics';
 import { CAPTION_LANGS, SPOKEN_LOCALES } from '../lib/model';
 import { parseTerms } from '../lib/glossary';
 import { getDefaultGlossary, getLangPrefs, getSchemePref, resolvedScheme, setDefaultGlossary, setLangPrefs, setSchemePref, watchScheme, type SchemePref } from '../lib/prefs';
@@ -91,6 +92,36 @@ installButton.addEventListener('click', async () => {
 });
 
 // ---------------------------------------------------------------- settings dialog
+/** Opt-in transcription diagnostics: a checkbox and the folder they are saved to. */
+function diagnosticsSection() {
+  const box = h('input', { type: 'checkbox', id: 'pref-diagnostics', checked: diagnosticsEnabled() }) as HTMLInputElement;
+  const where = h('small', {}, '');
+  const change = h('button', { class: 'btn btn-text', type: 'button' }, 'Change folder');
+  const show = async () => {
+    const dir = await getDiagnosticsFolder();
+    where.textContent = dir ? `Saving to the folder “${dir.name}”.` : '';
+    change.hidden = !dir || !box.checked;
+  };
+  const pick = async () => {
+    try { await chooseDiagnosticsFolder(); return true; } catch { return false; } // cancelled
+  };
+  box.addEventListener('change', async () => {
+    if (box.checked && !(await getDiagnosticsFolder()) && !(await pick())) box.checked = false;
+    setDiagnosticsEnabled(box.checked);
+    void show();
+  });
+  change.addEventListener('click', async () => { await pick(); void show(); });
+  void show();
+  return h('section', { 'aria-labelledby': 'set-diag' },
+    h('h3', { id: 'set-diag' }, 'Troubleshooting'),
+    h('label', { class: 'check-row' }, box,
+      h('span', {}, h('span', { class: 'check-title' }, 'Save transcription diagnostics'),
+        h('small', {}, 'While a meeting is live, shared-tab audio and the two-way room mic are recorded to a folder on this PC, ' +
+          'with what the model wrote for each clip. Use it to find out why captions miss words. The files contain the meeting audio: ' +
+          'turn this off and delete them when you are done.'))),
+    h('div', { class: 'diag-folder' }, where, change));
+}
+
 const AI_ROWS: { label: string; detail: string; check: () => Promise<Availability | string> }[] = [
   { label: 'Prompt API', detail: 'Q&A, action items, tab-audio captions', check: () => availability('LanguageModel') },
   { label: 'Summarizer', detail: 'Catch me up, minutes summary', check: () => availability('Summarizer') },
@@ -175,6 +206,8 @@ export function openSettings() {
   terms.value = getDefaultGlossary().join(', ');
   terms.addEventListener('change', () => setDefaultGlossary(parseTerms(terms.value)));
 
+  const troubleshooting = canRecordDiagnostics() ? diagnosticsSection() : '';
+
   dialog = h('dialog', { class: 'settings', 'aria-labelledby': 'settings-title', closedby: 'any' },
     h('div', { class: 'dialog-head' },
       h('h2', { id: 'settings-title' }, 'Settings'),
@@ -194,7 +227,8 @@ export function openSettings() {
       twoWayRow,
       h('label', { class: 'field-label', for: 'pref-glossary' }, 'Names and terms for every meeting, separated by commas'),
       terms,
-      h('p', { class: 'muted' }, 'Helps captions, answers and minutes spell them right. Each meeting can add its own in the Agenda tab.')));
+      h('p', { class: 'muted' }, 'Helps captions, answers and minutes spell them right. Each meeting can add its own in the Agenda tab.')),
+    troubleshooting);
   document.body.append(dialog);
   dialog.addEventListener('close', () => dialog?.remove());
   dialog.showModal();
